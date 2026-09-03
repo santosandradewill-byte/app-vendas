@@ -66,6 +66,9 @@ main{
   max-width:640px;margin:0 auto;
 }
 main.com-rodape{padding-bottom:calc(var(--abas) + var(--sa-b) + 96px)}
+/* bloco dobrado ("Ver o texto"): fechado, o conteudo nao entra na conta da rolagem.
+   No iPhone o texto escondido esticava a pagina em uma tela em branco no fim. */
+details.cartao:not([open]) > *:not(summary){display:none}
 
 /* ---------- abas inferiores ---------- */
 #abas{
@@ -2045,35 +2048,32 @@ function telaEnviar(){
   h += '<button class="bt bt-l bt-bloco" data-a="copiarTexto" data-i="'+esc(ped.id)+'">'+
     ico('copiar')+'Copiar o texto do pedido</button>';
 
-  /* --- e-mail em tabela --- */
-  h += '<div class="secao">Corpo do e-mail em tabela</div><div class="cartao"><div class="corpo">'+
-    '<div class="peq" style="margin-bottom:11px">O celular não deixa o app escrever direto no '+
-    'corpo do e-mail. Então copie aqui e <b>cole</b> lá: vai como <b>tabela de verdade</b>, com '+
-    'cabeçalho, cores e uma coluna para cada coisa — e o faturamento consegue selecionar e colar '+
-    'numa planilha, porque são dados, não imagem.</div>'+
-    '<button class="bt bt-d bt-bloco" data-a="copiarEmail" data-i="'+esc(ped.id)+'" data-v="industria">'+
-      ico('copiar')+'Copiar o pedido em tabela</button>'+
-    '<div class="linha-bt mt10">'+
-      '<button class="bt bt-l" data-a="verEmail" data-i="'+esc(ped.id)+'" data-v="industria">'+
-        ico('doc')+'Ver como fica</button>'+
-      '<button class="bt bt-l" data-a="copiarAssunto" data-i="'+esc(ped.id)+'" data-v="industria">'+
-        ico('copiar')+'Copiar o assunto</button>'+
-    '</div>'+
-    '<div class="peq" style="margin-top:11px"><b>Assunto:</b><br>'+esc(assuntoPedido(ped,false))+'</div>'+
-  '</div></div>';
-
-  /* --- arquivos --- */
-  h += '<div class="secao">Via da indústria</div>'+
+  /* --- via da industria: arquivos + pedido em tabela, tudo num cartao so --- */
+  h += '<div class="secao">Via da indústria</div><div class="cartao"><div class="corpo">'+
+    '<div class="peq" style="margin-bottom:11px">Pedido completo, com o endereço de entrega e '+
+    'todos os itens: <b>PDF</b> e <b>planilha</b> em anexo, e o mesmo pedido <b>em tabela</b> '+
+    'para colar no corpo do e-mail.</div>'+
     '<button class="bt bt-d bt-bloco" data-a="compartilhar" data-i="'+esc(ped.id)+'" data-v="industria">'+
       ico('subir')+'Compartilhar com anexos</button>'+
-    '<div class="peq" style="margin:7px 3px 11px">Abre a folha de compartilhar do celular com o '+
-    '<b>PDF</b> e a <b>planilha</b> já anexados'+
+    '<div class="peq" style="margin:7px 3px 0">Abre a folha de compartilhar do celular com o '+
+    'PDF e a planilha já anexados'+
     (ped.anexo?', mais a foto do documento do cliente':'')+
-    '. De lá você escolhe WhatsApp, Gmail ou o que quiser — e a mensagem já vai escrita.</div>'+
-    '<div class="linha-bt" style="margin-bottom:10px">'+
+    '. Ao tocar, o pedido em tabela <b>já fica copiado</b>: se escolher o e-mail, segure o dedo '+
+    'no corpo e toque em <b>Colar</b> — entra a tabela no lugar do texto simples.</div>'+
+    '<div class="linha-bt mt10">'+
     '<button class="bt bt-l" data-a="gerarPDF" data-i="'+esc(ped.id)+'" data-v="industria">'+ico('doc')+'Salvar PDF</button>'+
     '<button class="bt bt-l" data-a="gerarCSVPedido" data-i="'+esc(ped.id)+'">'+ico('baixar')+'Salvar planilha</button>'+
-    '</div>';
+    '</div>'+
+    '<div class="linha-bt mt10">'+
+    '<button class="bt bt-l" data-a="copiarEmail" data-i="'+esc(ped.id)+'" data-v="industria">'+
+      ico('copiar')+'Copiar em tabela</button>'+
+    '<button class="bt bt-l" data-a="verEmail" data-i="'+esc(ped.id)+'" data-v="industria">'+
+      ico('doc')+'Ver como fica</button>'+
+    '</div>'+
+    '<div class="peq" style="margin-top:11px"><b>Assunto:</b><br>'+esc(assuntoPedido(ped,false))+'</div>'+
+    '<button class="bt bt-l bt-bloco mt10" data-a="copiarAssunto" data-i="'+esc(ped.id)+'" data-v="industria">'+
+      ico('copiar')+'Copiar o assunto</button>'+
+  '</div></div>';
 
   /* --- via do cliente --- */
   h += '<div class="secao">Via do cliente</div><div class="cartao"><div class="corpo">'+
@@ -3348,19 +3348,23 @@ function xlsxDoPedido(ped){
   return xlsxDe('Pedido '+ped.num, L, [30, 10, 44, 8, 8, 10, 13, 13]);
 }
 /* Texto curto para corpo de e-mail e folha de compartilhar (a tabela inteira vai no PDF/planilha) */
-function resumoTexto(ped, paraCliente){
+function resumoTexto(ped, paraCliente, soPdf){
   const cli = clienteDe(ped) || {}; const t = totais(ped);
   const L = [];
   L.push((paraCliente?'Confirmação de pedido':'Pedido')+' '+ped.num+' — '+nomeMarca());
   if(ped.numCliente) L.push('Nº do pedido do cliente (usar na NF): '+ped.numCliente);
-  L.push('Cliente: '+(cli.fantasia||cli.razao||'—')+(cli.cidade?' — '+cli.cidade:''));
+  L.push('Cliente: '+(cli.razao||cli.fantasia||'—')+(cli.fantasia&&cli.fantasia!==cli.razao?' ('+cli.fantasia+')':''));
   if(cli.cnpj) L.push('CNPJ: '+cnpjBonito(cli.cnpj));
+  /* endereco completo em toda via: e o que a industria usa para faturar e entregar */
+  const end = [cli.endereco, cli.bairro, cli.cidade, cli.cep?'CEP '+cepBonito(cli.cep):''].filter(Boolean).join(' — ');
+  if(end) L.push('Entrega: '+end);
+  if(cli.referencia) L.push('Referência: '+cli.referencia);
   L.push('Data: '+dbr(ped.data)+(ped.dataEntrega?' · Entrega combinada: '+dbr(ped.dataEntrega):''));
   if(ped.cond) L.push('Pagamento: '+ped.cond);
-  L.push(t.itens+' item'+(t.itens===1?'':'s')+' · '+nm(t.cx, t.cx%1?1:0)+' cx · '+nm(t.kg,1)+' kg · Total '+brl(t.liquido));
+  L.push(t.itens+(t.itens===1?' item':' itens')+' · '+nm(t.cx, t.cx%1?1:0)+' cx · '+nm(t.kg,1)+' kg · Total '+brl(t.liquido));
   if(cli.agendamento) L.push('Descarga: '+cli.agendamento);
   L.push('');
-  L.push('Itens completos no PDF e na planilha em anexo.');
+  L.push('Itens completos no PDF'+((paraCliente||soPdf)?'':' e na planilha')+' em anexo.');
   const rep = [D.cfg.repNome, D.cfg.repTel?telBonito(D.cfg.repTel):''].filter(Boolean).join(' · ');
   if(rep) L.push(rep);
   return L.join('\n');
@@ -4776,7 +4780,7 @@ function pdfDoPedido(ped, paraCliente){
     ['Inscrição estadual', cli.ie],
     ['Regime', cli.regime],
     ['Canal', CANAL_NOME[cli.canal]],
-    ['Entrega', [cli.endereco, cli.cidade, cli.cep?'CEP '+cepBonito(cli.cep):''].filter(Boolean).join(' - ')],
+    ['Entrega', [cli.endereco, cli.bairro, cli.cidade, cli.cep?'CEP '+cepBonito(cli.cep):''].filter(Boolean).join(' - ')],
     ['Referência', cli.referencia],
     ['Contato', [cli.contato, cli.whats?telBonito(cli.whats):'',
                  cli.fone?telBonito(cli.fone):''].filter(Boolean).join(' - ')],
@@ -4986,15 +4990,29 @@ ACOES.compartilhar = async (id, variante) => {
     }
   }catch(e){ aviso('Não consegui preparar os arquivos.'); return; }
 
+  /* o pedido em tabela ja fica copiado antes de abrir a folha: se ele escolher o e-mail,
+     e so colar no corpo por cima do texto simples (e-mail aberto por link nao aceita HTML) */
+  try{ await copiarRico(emailHtml(ped, paraCliente), montarTexto(ped, false, paraCliente)); }catch(e){}
+
+  /* O Chrome do Android (e do Windows) so aceita na folha de compartilhar alguns tipos de
+     arquivo: PDF, foto, texto. Planilha .xlsx ele recusa e a folha nem abre. Nesse caso o
+     pedido vai sem a planilha, e o app avisa em seguida como mandar ela a parte. */
+  let semPlanilha = false;
+  if(navigator.canShare && !navigator.canShare({files:arquivos})){
+    const so = arquivos.filter(f=>f.type!==TIPO_XLSX);
+    if(so.length && so.length<arquivos.length && navigator.canShare({files:so})){ arquivos = so; semPlanilha = true; }
+  }
+
   const cli = clienteDe(ped) || {};
   try{
     if(navigator.canShare && navigator.canShare({files:arquivos})){
       await navigator.share({
         files: arquivos,
         title: assuntoPedido(ped, paraCliente),
-        text: resumoTexto(ped, paraCliente)
+        text: resumoTexto(ped, paraCliente, semPlanilha)
       });
-      if(!paraCliente) perguntarSeSaiu(ped);
+      if(semPlanilha) avisarPlanilhaFicou(ped);
+      else if(!paraCliente) perguntarSeSaiu(ped);
       return;
     }
   }catch(e){
@@ -5002,11 +5020,32 @@ ACOES.compartilhar = async (id, variante) => {
   }
   modal('Compartilhar não está disponível aqui',
     '<p style="margin:2px 0 12px;font-size:calc(14.5px * var(--esc));line-height:1.5">'+
-    'Este navegador não deixa mandar arquivo direto para o WhatsApp. '+
-    'Salve os dois arquivos e anexe você mesmo — leva o mesmo tempo.</p>',
+    'Este navegador não deixa mandar arquivo direto para o WhatsApp ou o e-mail. '+
+    'Salve os arquivos e anexe você mesmo — leva o mesmo tempo. '+
+    'O pedido em tabela já está copiado para colar no corpo do e-mail.</p>',
     '<div class="linha-bt">'+
     '<button class="bt bt-l" data-a="gerarPDF" data-i="'+esc(ped.id)+'" data-v="'+(paraCliente?'cliente':'')+'">Salvar PDF</button>'+
-    '<button class="bt bt-l" data-a="gerarCSVPedido" data-i="'+esc(ped.id)+'">Salvar planilha</button></div>');
+    (paraCliente?'':'<button class="bt bt-l" data-a="gerarCSVPedido" data-i="'+esc(ped.id)+'">Salvar planilha</button>')+'</div>');
+};
+/* Depois da folha, quando a planilha ficou de fora (regra do Chrome no Android) */
+function avisarPlanilhaFicou(ped){
+  modal('O PDF foi. A planilha ficou.',
+    '<p style="margin:2px 0 10px;font-size:calc(14.5px * var(--esc));line-height:1.5">'+
+    'A folha de compartilhar deste aparelho não aceita planilha do Excel (.xlsx) — é uma '+
+    'regra do Chrome no Android, não do app. O PDF e a mensagem foram normalmente.</p>'+
+    '<div class="peq">Se a indústria precisar da planilha: salve aqui e anexe pelo próprio e-mail. '+
+    'O pedido em tabela também já está copiado, com todos os itens, para colar no corpo.</div>',
+    '<button class="bt bt-p bt-bloco" data-a="planilhaESeguir" data-i="'+esc(ped.id)+'">'+ico('baixar')+'Salvar planilha</button>'+
+    '<button class="bt bt-t bt-bloco mt10" data-a="seguirSemPlanilha" data-i="'+esc(ped.id)+'">Não precisa</button>');
+}
+ACOES.planilhaESeguir = id => {
+  const ped = pedidoPorId(id); if(!ped) return;
+  baixar(nomeArquivo(ped,'xlsx'), xlsxDoPedido(ped), TIPO_XLSX);
+  fechaModal(); setTimeout(()=>perguntarSeSaiu(ped), 250);
+};
+ACOES.seguirSemPlanilha = id => {
+  const ped = pedidoPorId(id); fechaModal();
+  if(ped) setTimeout(()=>perguntarSeSaiu(ped), 250);
 };
 
 /* ---------- documento original do cliente ---------- */
