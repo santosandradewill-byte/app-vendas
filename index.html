@@ -661,6 +661,7 @@ const CONTATOS_EMBUTIDOS = ['illan','renata','bernard','fernando'];  /* só os i
 
 function lerJSON(k,alt){ try{ const t=localStorage.getItem(k); return t?JSON.parse(t):alt; }catch(e){ return alt; } }
 function gravar(silencioso){
+  HIST.cli = null;   /* historico por cliente pode ter mudado */
   try{ localStorage.setItem(K_DADOS, JSON.stringify(D)); }
   catch(e){ aviso('Sem espaço no aparelho. Faça um backup e apague pedidos antigos.'); }
   /* qualquer mudanca agenda o envio para a nuvem; o proprio envio grava em silencio */
@@ -865,7 +866,15 @@ const ABAS = [
   {id:'historico', rot:'Histórico', ic:'historico'},
   {id:'ajustes',   rot:'Ajustes',   ic:'ajustes'}
 ];
-function irPara(a){ ABA=a; VISTA=null; localStorage.setItem(K_ABA,a); window.scrollTo(0,0); render(); }
+function irPara(a){
+  /* saindo da montagem com itens no pedido: pergunta antes, para nada se perder sem querer */
+  if(ABA==='pedido' && !VISTA && a!=='pedido'){
+    const ped = pedidoRascunho();
+    if(ped && ped.clienteId && ped.itens.length){ ACOES.sairDoPedido(a); return; }
+    if(ped && ped.clienteId && !ped.itens.length){ D.pedidos = D.pedidos.filter(x=>x.id!==ped.id); D.rascunhoId = null; gravar(); }
+  }
+  ABA=a; VISTA=null; localStorage.setItem(K_ABA,a); window.scrollTo(0,0); render();
+}
 
 const ACOES = {};
 document.addEventListener('click', e=>{
@@ -876,8 +885,48 @@ document.addEventListener('click', e=>{
 });
 ACOES.fechaModal = fechaModal;
 ACOES.aba    = a => irPara(a);
-ACOES.voltar = () => { VISTA=null; window.scrollTo(0,0); render(); };
+ACOES.voltar = () => {
+  if(!VISTA && ABA==='pedido'){ const ped = pedidoRascunho(); if(ped && ped.clienteId){ ACOES.sairDoPedido('pedido'); return; } }
+  VISTA=null; window.scrollTo(0,0); render();
+};
 ACOES.nada   = () => {};
+
+/* Sair da montagem do pedido: guarda, descarta ou fica. 'destino' e a aba
+   para onde ele estava indo ('pedido' = so voltar para a escolha do cliente). */
+let SAIR_DESTINO = 'pedido';
+ACOES.sairDoPedido = destino => {
+  const ped = pedidoRascunho(); if(!ped){ VISTA=null; render(); return; }
+  SAIR_DESTINO = destino || 'pedido';
+  if(!ped.itens.length){ D.pedidos = D.pedidos.filter(x=>x.id!==ped.id); D.rascunhoId = null; gravar(); ACOES.sairConfirmado(); return; }
+  const cli = clienteDe(ped); const t = totais(ped);
+  modal('Sair do pedido?',
+    '<div class="cartao" style="margin:0 0 14px"><div class="corpo">'+
+      '<div style="font-size:calc(15px * var(--esc));font-weight:700;line-height:1.3">'+esc(cli?(cli.fantasia||cli.razao):'Sem cliente')+'</div>'+
+      '<div class="peq" style="margin-top:3px">Pedido '+esc(ped.num)+' · '+ped.itens.length+' iten'+(ped.itens.length===1?'':'s')+' · '+brl(t.liquido)+'</div>'+
+    '</div></div>'+
+    '<div class="peq" style="margin-bottom:4px">Você está no meio deste pedido. O que fazer com ele?</div>',
+    '<button class="bt bt-p bt-bloco" data-a="sairGuardando">'+ico('salvar')+'Guardar como rascunho e sair</button>'+
+    '<button class="bt bt-l bt-bloco mt10" data-a="sairDescartando" style="color:var(--terracota)">'+ico('lixo')+'Descartar e sair</button>'+
+    '<button class="bt bt-t bt-bloco mt10" data-a="fechaModal">Continuar no pedido</button>');
+};
+ACOES.sairGuardando = () => {
+  const ped = pedidoRascunho(); if(ped){ D.rascunhoId = null; gravar(); }
+  fechaModal(); ACOES.sairConfirmado(); if(ped) aviso('Pedido '+ped.num+' guardado como rascunho');
+};
+ACOES.sairDescartando = () => {
+  const ped = pedidoRascunho(); if(!ped) return;
+  fechaModal();
+  setTimeout(()=>{
+    confirmar('Descartar o pedido '+ped.num+'?', 'Os '+ped.itens.length+' itens somem e o pedido não fica no histórico.', 'Descartar', 'bt-r', ()=>{
+      D.pedidos = D.pedidos.filter(x=>x.id!==ped.id); D.rascunhoId = null; gravar(); ACOES.sairConfirmado(); aviso('Pedido descartado');
+    });
+  }, 180);
+};
+ACOES.sairConfirmado = () => {
+  bq=''; bqCli=''; fCat=null; fCanal=null;
+  const a = SAIR_DESTINO || 'pedido';
+  ABA=a; VISTA=null; localStorage.setItem(K_ABA,a); window.scrollTo(0,0); render();
+};
 
 /* =====================================================
    ENTRADAS DE TEXTO (sem redesenhar a tela inteira)
@@ -923,17 +972,41 @@ function produtosFiltrados(ped){
   const q = sac(bq).trim();
   const termos = q ? q.split(/\s+/) : [];
   return CAT.filter(p=>{
-    if(p.canal !== canal) return false;
+    if(canal !== 'TODOS' && p.canal !== canal) return false;
     if(fCat && p.categoria !== fCat) return false;
     if(!termos.length) return true;
     return termos.every(t=>p.busca.indexOf(t)>-1);
   }).sort((a,b)=>
+    ordemMarca(a) - ordemMarca(b) ||
     a.categoria.localeCompare(b.categoria,'pt-BR') ||
     a.nome.localeCompare(b.nome,'pt-BR') ||
     (a.caixa==='GRANDE'?0:1)-(b.caixa==='GRANDE'?0:1)
   );
 }
+/* a lista nunca mistura marcas: Harus inteira, depois PP inteira */
+function ordemMarca(p){ const m = String(p.marca||'').toUpperCase(); return m==='HARUS' ? 0 : m==='PP' ? 1 : 2; }
 
+/* O que ESTE cliente ja comprou, por SKU: ultima data, preco e quantidade.
+   Recalcula so quando muda o cliente. */
+let HIST = { cli:null, mapa:{} };
+function historicoDoCliente(clienteId){
+  if(HIST.cli === clienteId) return HIST.mapa;
+  const mapa = {};
+  D.pedidos.filter(p=>p.clienteId===clienteId && VALE(p.status))
+    .sort((a,b)=>String(a.data).localeCompare(String(b.data)))
+    .forEach(p=>{ (p.itens||[]).forEach(it=>{
+      const h = mapa[it.skuId] || (mapa[it.skuId] = {vezes:0});
+      h.vezes++; h.data = p.data; h.preco = it.preco; h.qtd = it.qtd; h.un = it.un; h.num = p.num;
+    }); });
+  HIST = { cli:clienteId, mapa };
+  return mapa;
+}
+function seloJaComprou(p, ped){
+  if(!ped || !ped.clienteId) return '';
+  const h = historicoDoCliente(ped.clienteId)[p.id];
+  if(!h) return '';
+  return '<span class="et et-fe" title="última compra">já comprou '+h.vezes+'× · '+brl(h.preco)+' em '+dbr(h.data).slice(0,5)+'</span>';
+}
 function cartaoProduto(p, ped){
   /* Se o produto já está no pedido, o card vira contador: ele soma e tira
      sem precisar abrir a revisão para lembrar quantas já pôs. */
@@ -966,6 +1039,8 @@ function cartaoProduto(p, ped){
       '<span class="et et-cod">'+esc(p.cod)+'</span>'+
       '<span class="et '+(p.caixa==='GRANDE'?'et-g':'et-p')+'">'+esc(rotuloCaixa(p))+'</span>'+
       '<span class="et '+(p.marca==='PP'?'et-pp':'et-har')+'">'+esc(p.marca)+'</span>'+
+      (fCanal==='TODOS'?'<span class="et '+(p.canal==='VAREJO'?'et-vrj':'et-fs')+'">'+CANAL_NOME[p.canal]+'</span>':'')+
+      seloJaComprou(p, ped)+
       (kgTxt?'<span class="txt">'+kgTxt+'</span>':'')+
       (unTxt?'<span class="txt">· '+unTxt+'</span>':'')+
       (it?'<span class="et et-fa">'+ico('check')+' no pedido</span>':'')+
@@ -1009,7 +1084,7 @@ function listaProdutos(ped){
   if(!ps.length){
     return '<div class="vazio">'+ico('busca')+'<p>Nada encontrado</p>'+
       '<span>Tente parte do nome ou o código do produto. '+
-      'O filtro está em '+CANAL_NOME[canalAtivo(ped)]+'.</span></div>';
+      'O filtro está em '+(canalAtivo(ped)==='TODOS'?'todos os canais':CANAL_NOME[canalAtivo(ped)])+'.</span></div>';
   }
   let h='', catAtual=null;
   ps.forEach(p=>{
@@ -1033,10 +1108,11 @@ function chipsProduto(ped){
     h += '<button class="chip '+(canal===c?'on':'')+'" data-a="setCanal" data-i="'+c+'">'+
          CANAL_NOME[c]+'<span class="n">'+n+'</span></button>';
   });
+  h += '<button class="chip '+(canal==='TODOS'?'on':'')+'" data-a="setCanal" data-i="TODOS">Tabela inteira<span class="n">'+CAT.length+'</span></button>';
   h += '</div>';
 
   const cats = [];
-  CAT.forEach(p=>{ if(p.canal===canal && cats.indexOf(p.categoria)<0) cats.push(p.categoria); });
+  CAT.forEach(p=>{ if((canal==='TODOS' || p.canal===canal) && cats.indexOf(p.categoria)<0) cats.push(p.categoria); });
   cats.sort((a,b)=>a.localeCompare(b,'pt-BR'));
   h += '<div class="chips"><button class="chip '+(!fCat?'on':'')+'" data-a="setCat" data-i="">Todos</button>';
   cats.forEach(c=>{
@@ -1044,7 +1120,7 @@ function chipsProduto(ped){
   });
   h += '</div>';
 
-  if(cli && cli.canal!==canal){
+  if(cli && canal!=='TODOS' && cli.canal!==canal){
     h += '<div class="aviso" style="margin:-2px 0 10px">'+ico('alerta')+
          '<span>'+esc(cli.fantasia||cli.razao)+' está cadastrado como '+CANAL_NOME[cli.canal]+
          '. Você está vendo a tabela de '+CANAL_NOME[canal]+'.</span></div>';
@@ -1110,18 +1186,20 @@ function blocoItens(ped){
   return ped.itens.map(linhaItem).join('');
 }
 
+function blocoDadosPedido(ped){
+  const cli = clienteDe(ped) || {};
+  return '<div class="dupla">'+
+    '<div class="campo mb0"><label>Nº do pedido no cliente</label>'+
+      '<input type="text" value="'+esc(ped.numCliente||'')+'" data-in="numCli" placeholder="OC / nº do comprador"></div>'+
+    '<div class="campo mb0"><label>Entrega combinada</label>'+
+      '<input type="date" value="'+esc(ped.dataEntrega||'')+'" data-in="dataEnt" min="'+hoje()+'"></div>'+
+    '</div>'+
+    '<div class="dica" style="margin-top:6px">O número do cliente é o que a indústria usa na nota; o seu ('+esc(ped.num)+') é controle interno. '+
+    (cli.agendamento?'<b>Descarga:</b> '+esc(cli.agendamento):'Entrega em branco = o quanto antes.')+'</div>';
+}
 function blocoFechamento(ped){
   const t = totais(ped);
   return '<div class="corpo">'+
-    '<div class="campo"><label>Nº do pedido no cliente</label>'+
-      '<input type="text" value="'+esc(ped.numCliente||'')+'" data-in="numCli" '+
-      'placeholder="Ordem de compra que o cliente passou (opcional)">'+
-      '<div class="dica">O seu número é o '+esc(ped.num)+', gerado sozinho. '+
-      'Este campo é o número que o comprador dá — serve para casar o pedido na hora do faturamento.</div></div>'+
-    '<div class="campo"><label>Data de entrega combinada</label>'+
-      '<input type="date" value="'+esc(ped.dataEntrega||'')+'" data-in="dataEnt" min="'+hoje()+'">'+
-      '<div class="dica">Deixe em branco se ficou "o quanto antes". Quando preenchida, '+
-      'sai destacada no pedido e no PDF.</div></div>'+
     '<div class="dupla">'+
       '<div class="campo mb0"><label>Desconto (%)</label>'+
         '<input type="text" inputmode="decimal" value="'+(ped.desc?vlr(ped.desc).replace(/,00$/,''):'')+
@@ -1208,6 +1286,19 @@ function seletorCliente(){
   h += '<button class="bt bt-l bt-bloco" data-a="novoCliente">'+ico('mais')+'Novo cliente</button>';
   return h;
 }
+/* C0001, C0002... unico por cliente neste aparelho; clientes antigos ganham o deles na abertura */
+function proximoCodCliente(){
+  D.seqCli = (D.seqCli||0) + 1;
+  return 'C' + String(D.seqCli).padStart(4,'0');
+}
+function garantirCodigosClientes(){
+  let maior = D.seqCli||0;
+  D.clientes.forEach(c=>{ const n = parseInt(String(c.cod||'').replace(/\D/g,''),10); if(!isNaN(n) && n>maior) maior=n; });
+  D.seqCli = maior;
+  let mudou = false;
+  D.clientes.slice().sort((a,b)=>String(a.criadoEm||'').localeCompare(String(b.criadoEm||''))).forEach(c=>{ if(!c.cod && !c.demo){ c.cod = proximoCodCliente(); mudou = true; } });
+  if(mudou) gravar(true);
+}
 function iniciais(t){
   const p = String(t||'?').trim().split(/\s+/).filter(Boolean);
   return ((p[0]||'?')[0] + (p.length>1?p[p.length-1][0]:'')).toUpperCase();
@@ -1227,9 +1318,18 @@ function telaPedido(){
       '<span class="ini">'+esc(iniciais(cli.fantasia||cli.razao))+'</span>'+
       '<span class="info"><span class="nm">'+esc(cli.fantasia||cli.razao)+'</span>'+
       '<span class="sub"><span class="et '+(cli.canal==='VAREJO'?'et-vrj':'et-fs')+'">'+CANAL_NOME[cli.canal]+'</span>'+
-      '<span>Pedido '+esc(ped.num)+'</span><span>'+dbr(ped.data)+'</span></span></span>'+
+      '<span>Pedido '+esc(ped.num)+'</span><span>'+dbr(ped.data)+'</span>'+
+      (cli.cod?'<span>'+esc(cli.cod)+'</span>':'')+'</span></span>'+
       '<span class="seta">'+ico('seta')+'</span>'+
-    '</button></div>';
+    '</button>'+
+    '<div class="linha-bt" style="padding:0 12px 12px">'+
+      '<button class="bt bt-l" data-a="histCliente" data-i="'+esc(cli.id)+'" style="min-height:40px">'+ico('historico')+'Histórico</button>'+
+      '<button class="bt bt-l" data-a="repetirUltimo" data-i="'+esc(cli.id)+'" style="min-height:40px">'+ico('repetir')+'Repetir último</button>'+
+    '</div></div>';
+
+  /* o numero do pedido do cliente e a data de entrega ficam a vista, antes dos itens:
+     e o que a industria usa na NF e o que o comprador combina na hora */
+  h += '<div class="cartao" style="margin-bottom:10px"><div class="corpo" style="padding:12px 14px">'+blocoDadosPedido(ped)+'</div></div>';
 
   h += '<div class="busca" style="margin-bottom:9px">'+ico('busca')+
     '<input type="text" placeholder="Buscar produto ou código" value="'+esc(bq)+'" data-in="bq" '+
@@ -1309,6 +1409,46 @@ ACOES.escolherCliente = id => {
 };
 /* Sair de um pedido que já tem itens é uma decisão, não um acidente.
    Três saídas claras, e nenhuma delas leva os itens para o cliente errado. */
+/* Historico de compras do cliente sem sair do pedido: pedidos e SKUs */
+ACOES.histCliente = id => {
+  const c = clientePorId(id); if(!c) return;
+  const peds = D.pedidos.filter(p=>p.clienteId===id && VALE(p.status)).sort((a,b)=>b.data.localeCompare(a.data)).slice(0,12);
+  let h = '';
+  if(!peds.length) h = '<div class="vazio">'+ico('historico')+'<p>Ainda não comprou</p><span>Quando fechar o primeiro pedido, ele aparece aqui.</span></div>';
+  peds.forEach(p=>{
+    const t = totais(p);
+    h += '<div class="cartao" style="margin:0 0 8px"><div class="corpo" style="padding:10px 12px">'+
+      '<div style="display:flex;justify-content:space-between;gap:8px;align-items:baseline">'+
+        '<div><b>'+esc(p.num)+'</b> <span class="peq">'+dbr(p.data)+' · '+esc(p.status)+'</span></div>'+
+        '<div style="font-weight:750">'+brl(t.liquido)+'</div></div>'+
+      '<div class="peq" style="margin-top:6px">'+
+        (p.itens||[]).map(it=>{ const pr=porId[it.skuId]; return esc(pr?pr.nome:(it.nome||it.skuId))+' — '+nm(it.qtd)+' '+esc(UN_CURTO[it.un]||it.un)+' × '+brl(it.preco); }).join('<br>')+
+      '</div></div></div>';
+  });
+  modal('Histórico de '+esc(c.fantasia||c.razao), h,
+    '<div class="linha-bt"><button class="bt bt-l" data-a="fechaModal">Fechar</button>'+
+    (peds.length?'<button class="bt bt-p" data-a="repetirUltimo" data-i="'+esc(id)+'">'+ico('repetir')+'Repetir o último</button>':'')+'</div>');
+};
+/* Repete o ultimo pedido fechado deste cliente no rascunho atual, com o preco de tabela de hoje */
+ACOES.repetirUltimo = id => {
+  const ped = pedidoRascunho(); if(!ped || ped.clienteId!==id){ aviso('Abra um pedido para este cliente primeiro.'); return; }
+  const ult = D.pedidos.filter(p=>p.clienteId===id && VALE(p.status) && p.id!==ped.id).sort((a,b)=>b.data.localeCompare(a.data))[0];
+  if(!ult){ aviso('Este cliente ainda não tem pedido fechado.'); return; }
+  const aplica = () => {
+    let n = 0;
+    (ult.itens||[]).forEach(it=>{
+      const pr = porId[it.skuId]; if(!pr) return;
+      const ja = ped.itens.find(x=>x.skuId===it.skuId);
+      if(ja){ ja.qtd = it.qtd; }
+      else ped.itens.push({ skuId:it.skuId, cod:pr.cod, nome:pr.nome, un:it.un, qtd:it.qtd, preco:precoDe(pr,it.un) });
+      n++;
+    });
+    gravar(); fechaModal(); render(); aviso('Repetido o pedido '+ult.num+': '+n+' itens, preço de tabela de hoje');
+  };
+  if(ped.itens.length){ confirmar('Somar ao pedido atual?', 'Os '+ult.itens.length+' itens do pedido '+ult.num+' entram no que você já montou (quantidades iguais são substituídas).', 'Somar', 'bt-p', aplica); }
+  else aplica();
+};
+
 ACOES.trocarCliente = () => {
   const ped = pedidoRascunho(); if(!ped) return;
   if(!ped.itens.length){ ped.clienteId = null; gravar(); render(); return; }
@@ -1475,7 +1615,23 @@ ACOES.salvarPreco = i => {
   const ped=pedidoRascunho(); const it=ped.itens[+i];
   const v = pnum(el('np').value);
   if(v<=0){ aviso('Informe um preço maior que zero.'); return; }
-  it.preco = v; gravar(); fechaModal(); pintaItens();
+  const tab = precoDe(porId[it.skuId], it.un);
+  const aplica = () => { it.preco = v; it.abaixoTabela = (tab>0 && v < tab - 0.005) ? tab : undefined; gravar(); fechaModal(); pintaItens(); };
+  /* abaixo da tabela pode — mas nunca por engano: pergunta antes, mostrando a diferença */
+  if(tab>0 && v < tab - 0.005){
+    const pct = (tab-v)/tab*100;
+    modal('Vender abaixo da tabela?',
+      '<div style="font-size:calc(15px * var(--esc));font-weight:650;margin-bottom:6px">'+esc(it.nome)+'</div>'+
+      '<table class="tabelinha"><tr><td>Tabela</td><td>'+brl(tab)+'</td></tr>'+
+      '<tr><td>Você digitou</td><td class="v-terra">'+brl(v)+'</td></tr>'+
+      '<tr><td>Diferença</td><td class="v-terra">− '+brl(tab-v)+' por caixa · −'+nm(pct,1)+'%</td></tr></table>'+
+      '<div class="aviso mt10">'+ico('alerta')+'<span>Vale só neste pedido e fica marcado no item. Confirme só se é negociação de verdade.</span></div>',
+      '<div class="linha-bt"><button class="bt bt-l" data-a="editarPreco" data-i="'+i+'">Voltar</button>'+
+      '<button class="bt bt-r" data-a="confAbaixo">Sim, vender a '+brl(v)+'</button></div>');
+    ACOES.confAbaixo = aplica;
+    return;
+  }
+  aplica();
 };
 
 ACOES.descartar = () => {
@@ -1542,9 +1698,11 @@ function montarTexto(ped, marcado, paraCliente){
 
   L.push(b + (paraCliente ? 'CONFIRMAÇÃO DE PEDIDO ' : 'PEDIDO ') + ped.num + ' — ' + nomeMarca().toUpperCase() + b);
   L.push(_REGUA);
+  /* o numero que a industria tem que usar na NF e o do CLIENTE; o nosso e controle interno */
+  if(ped.numCliente)  L.push(b+'Nº DO PEDIDO DO CLIENTE (usar na NF): ' + ped.numCliente + b);
+  L.push((ped.numCliente ? 'Nosso controle: ' : 'Número: ') + ped.num);
   L.push('Data do pedido: ' + dbr(ped.data));
-  if(ped.numCliente)  L.push('Pedido do cliente: ' + ped.numCliente);
-  if(ped.dataEntrega) L.push('Entrega combinada: ' + dbr(ped.dataEntrega));
+  if(ped.dataEntrega) L.push(b+'Entrega combinada: ' + dbr(ped.dataEntrega)+b);
   if(ped.cond)        L.push('Pagamento: ' + ped.cond);
 
   L.push('');
@@ -1552,6 +1710,8 @@ function montarTexto(ped, marcado, paraCliente){
   L.push(_REGUA);
   L.push(cli.razao||'—');
   if(cli.fantasia && cli.fantasia!==cli.razao) L.push('Fantasia: '+cli.fantasia);
+  if(cli.cod || cli.codIndustria) L.push('Código: '+[cli.cod, cli.codIndustria?'indústria '+cli.codIndustria:''].filter(Boolean).join(' · '));
+  if(cli.agendamento) L.push('Descarga / agendamento: '+cli.agendamento);
   if(cli.rede)      L.push('Rede: '+cli.rede + (cli.loja?' — loja '+cli.loja:''));
   else if(cli.loja) L.push('Loja: '+cli.loja);
   if(cli.cnpj)   L.push('CNPJ: '+cnpjBonito(cli.cnpj));
@@ -1941,12 +2101,16 @@ function telaEnviar(){
   h += chipsSituacao(ped);
   h += verTexto(ped, false);
 
-  h += '<div class="linha-bt" style="margin-top:10px">'+
+  /* check-out: o pedido esta fechado e enviado; daqui ele parte para o proximo cliente */
+  h += '<button class="bt bt-p bt-bloco bt-alto" style="margin-top:14px" data-a="concluirPedido">'+ico('check')+'CONCLUIR — PRÓXIMO CLIENTE</button>'+
+    '<div class="peq" style="margin:7px 3px 12px">Volta para a escolha do cliente. Este pedido fica no Histórico.</div>';
+  h += '<div class="linha-bt" style="margin-top:4px">'+
     '<button class="bt bt-l" data-a="abrirPedido" data-i="'+esc(ped.id)+'">'+ico('doc')+'Ver o pedido</button>'+
-    '<button class="bt bt-l" data-a="aba" data-i="clientes">'+ico('clientes')+'Próximo cliente</button>'+
+    '<button class="bt bt-l" data-a="aba" data-i="historico">'+ico('historico')+'Histórico</button>'+
     '</div>';
   return h;
 }
+ACOES.concluirPedido = () => { D.rascunhoId = null; gravar(); VISTA=null; bq=''; bqCli=''; fCat=null; fCanal=null; irPara('pedido'); };
 
 function seloStatus(s){
   return s==='Fechado'?'et-fe': s==='Enviado'?'et-en': s==='Faturado'?'et-fa':
@@ -2120,7 +2284,7 @@ ACOES.abrirMail = (cid, pid) => {
   fechaModal();
   abrir('mailto:'+encodeURIComponent(c.email)+
         '?subject='+encodeURIComponent(assuntoPedido(ped,false))+cc+
-        '&body='+encodeURIComponent(montarTexto(ped,false)));
+        '&body='+encodeURIComponent(resumoTexto(ped,false)));
   perguntarSeSaiu(ped);
 };
 
@@ -2132,7 +2296,7 @@ ACOES.emailCliente = pid => {
   const cc = D.cfg.repEmail ? '&cc='+encodeURIComponent(D.cfg.repEmail) : '';
   abrir('mailto:'+encodeURIComponent(cli.email)+
         '?subject='+encodeURIComponent(assuntoPedido(ped,true))+cc+
-        '&body='+encodeURIComponent(montarTexto(ped,false,true)));
+        '&body='+encodeURIComponent(resumoTexto(ped,true)));
 };
 ACOES.copiarTexto = pid => {
   const ped = pedidoPorId(pid); if(!ped) return;
@@ -2275,6 +2439,8 @@ function telaCliente(){
       '</div></div>'+
     '<hr>'+
     '<table class="tabelinha">'+
+      (c.cod?'<tr><td>Seu código</td><td>'+esc(c.cod)+'</td></tr>':'')+
+      (c.codIndustria?'<tr><td>Código na indústria</td><td>'+esc(c.codIndustria)+'</td></tr>':'')+
       (c.rede?'<tr><td>Rede</td><td>'+esc(c.rede)+'</td></tr>':'')+
       (c.loja?'<tr><td>Loja</td><td>'+esc(c.loja)+'</td></tr>':'')+
       (c.cnpj?'<tr><td>CNPJ</td><td>'+esc(cnpjBonito(c.cnpj))+'</td></tr>':'')+
@@ -2284,6 +2450,9 @@ function telaCliente(){
       (c.whats?'<tr><td>WhatsApp</td><td>'+esc(telBonito(c.whats))+'</td></tr>':'')+
       (c.fone?'<tr><td>Telefone</td><td>'+esc(telBonito(c.fone))+'</td></tr>':'')+
       (c.email?'<tr><td>E-mail</td><td style="word-break:break-all">'+esc(c.email)+'</td></tr>':'')+
+      (c.emailXml?'<tr><td>E-mail do XML</td><td style="word-break:break-all">'+esc(c.emailXml)+'</td></tr>':'')+
+      (c.emailFin?'<tr><td>E-mail financeiro</td><td style="word-break:break-all">'+esc(c.emailFin)+'</td></tr>':'')+
+      (c.agendamento?'<tr><td>Descarga</td><td>'+esc(c.agendamento)+'</td></tr>':'')+
       (c.cep?'<tr><td>CEP</td><td>'+esc(cepBonito(c.cep))+'</td></tr>':'')+
       (c.endereco?'<tr><td>Entrega</td><td>'+esc(c.endereco)+'</td></tr>':'')+
       (c.referencia?'<tr><td>Referência</td><td>'+esc(c.referencia)+'</td></tr>':'')+
@@ -2298,7 +2467,8 @@ function telaCliente(){
     '<button class="bt bt-d" data-a="pedidoPara" data-i="'+c.id+'">'+ico('mais')+'Novo pedido</button>'+
     (c.whats?'<button class="bt bt-v" style="flex:0 0 auto;padding:0 18px" data-a="waCli" data-i="'+c.id+'" aria-label="WhatsApp">'+ico('whats')+'</button>':'')+
     '<button class="bt bt-l" style="flex:0 0 auto;padding:0 18px" data-a="editarCliente" data-i="'+c.id+'" aria-label="Editar">'+ico('editar')+'</button>'+
-  '</div>';
+  '</div>'+
+  '<button class="bt bt-l bt-bloco" style="margin-bottom:10px" data-a="compartilharFicha" data-i="'+c.id+'">'+ico('doc')+'Mandar ficha cadastral para a indústria</button>';
 
   h += '<div class="kpis">'+
     kpi('Comprou', brl0(r.total), r.qtd+' pedido'+(r.qtd===1?'':'s')) +
@@ -2375,6 +2545,14 @@ function telaFormCliente(){
     'para emitir a nota. Sem eles o pedido trava no faturamento.</div>'+
   '</div></div>';
 
+  h += '<div class="secao">Códigos</div><div class="cartao"><div class="corpo">'+
+    '<div class="dupla">'+
+      '<div class="campo"><label>Seu código</label><input type="text" value="'+esc(c.cod||'(gerado ao salvar)')+'" disabled style="opacity:.7"></div>'+
+      '<div class="campo"><label>Código na indústria</label><input type="text" id="f_codIndustria" value="'+esc(c.codIndustria||'')+'" placeholder="quando a indústria passar"></div>'+
+    '</div>'+
+    '<div class="dica">O seu código é automático e único por cliente. O da indústria você preenche quando eles cadastrarem o cliente lá; a partir daí sai em todos os pedidos.</div>'+
+  '</div></div>';
+
   h += '<div class="secao">Contato</div><div class="cartao"><div class="corpo">'+
     f('contato','Contato', c.contato,'text','Nome de quem atende') +
     '<div class="dupla">'+
@@ -2382,6 +2560,8 @@ function telaFormCliente(){
       '<div class="campo"><label>Telefone fixo</label><input type="tel" inputmode="tel" id="f_fone" value="'+esc(c.fone?telBonito(c.fone):'')+'" placeholder="(21) 2222-3333"></div>'+
     '</div>'+
     f('email','E-mail', c.email,'email','pedidos@cliente.com.br','','inputmode="email" autocapitalize="off"') +
+    f('emailXml','E-mail para o XML da nota', c.emailXml,'email','se for diferente do e-mail acima','A indústria manda o XML da NF para cá. Vazio = usa o e-mail principal.','inputmode="email" autocapitalize="off"') +
+    f('emailFin','E-mail do financeiro', c.emailFin,'email','redes grandes costumam ter um','Boletos e cobrança. Vazio = não sai na ficha.','inputmode="email" autocapitalize="off"') +
     '<div class="campo mb0"><label>Condição de pagamento</label>'+
       '<input type="text" id="f_cond" value="'+esc(c.cond||'')+'" list="conds" placeholder="28 dias">'+
       '<div class="dica">Toque para ver a lista, ou digite o prazo que vocês combinaram.</div></div>'+
@@ -2399,6 +2579,8 @@ function telaFormCliente(){
     f('endereco','Endereço', c.endereco,'text','Rua, número, bairro') +
     f('referencia','Ponto de referência', c.referencia,'text','Ex.: ao lado do posto, entrada pelos fundos',
       'Ajuda o motorista a achar sem ligar.') +
+    f('agendamento','Agendamento de descarga', c.agendamento,'text','Ex.: agendar pelo (21) 9999-9999, seg a sex 8h–11h',
+      'Redes costumam exigir. Sai no pedido e no PDF para a indústria programar a entrega.') +
     '<div class="campo mb0"><label>Observações</label><textarea id="f_obs" placeholder="Dia de visita, horário de recebimento, quem assina...">'+esc(c.obs||'')+'</textarea></div>'+
   '</div></div>';
 
@@ -2441,14 +2623,21 @@ ACOES.salvarCliente = id => {
     canal:el('f_canal').value, regime:el('f_regime').value,
     contato:g('contato'), whats:soN(g('whats')), fone:soN(g('fone')), email:g('email'),
     cep:soN(g('cep')), endereco:g('endereco'), referencia:g('referencia'), bairro:g('bairro'),
-    cidade:g('cidade'), cond:g('cond'), obs:g('obs')
+    cidade:g('cidade'), cond:g('cond'), obs:g('obs'),
+    emailXml:g('emailXml'), emailFin:g('emailFin'), codIndustria:g('codIndustria'), agendamento:g('agendamento')
   };
+  /* CNPJ e unico: dois cadastros para o mesmo CNPJ viram dois clientes no painel e na industria */
+  if(dados.cnpj){
+    const outro = D.clientes.find(x=>x.cnpj===dados.cnpj && x.id!==id && !x.demo);
+    if(outro){ aviso('Este CNPJ já está em '+(outro.fantasia||outro.razao)+' ('+(outro.cod||'')+').'); const n=el('f_cnpj'); if(n) n.focus(); return; }
+  }
   if(id){
     const c = clientePorId(id); Object.assign(c, dados);
     aviso('Cliente atualizado');
     VISTA = {t:'cliente', id:id};
   } else {
     dados.id = uid(); dados.criadoEm = new Date().toISOString();
+    dados.cod = proximoCodCliente();
     D.clientes.push(dados);
     aviso('Cliente cadastrado');
     VISTA = {t:'cliente', id:dados.id};
@@ -2981,6 +3170,7 @@ function linhaPedido(p, comCliente){
       (comCliente?'<span>'+esc(p.num)+'</span>':'')+
       '<span>'+dbr(p.data)+'</span>'+
       '<span class="et '+seloStatus(p.status)+'">'+esc(p.status)+'</span>'+
+      (p.enviadoEm?'<span>enviado '+horaCurta(p.enviadoEm)+'</span>':(p.fechadoEm?'<span>fechado '+horaCurta(p.fechadoEm)+'</span>':''))+
       (precisaConferir(p)?'<span class="et et-al">a conferir</span>':'')+
       (p.conferido&&t.cortado>0?'<span class="et et-al">corte '+brl0(t.cortado)+'</span>':'')+
       (p.demo?'<span class="et et-ex">exemplo</span>':'')+
@@ -3047,6 +3237,135 @@ ACOES.repetir = id => {
 };
 
 /* ---------- CSV ---------- */
+/* =====================================================
+   XLSX escrito a mao (zip sem compressao + XML do Excel).
+   Sem biblioteca: continua arquivo unico e offline.
+   ===================================================== */
+const CRC_TAB = (()=>{ const t=new Uint32Array(256); for(let n=0;n<256;n++){ let c=n; for(let k=0;k<8;k++) c = (c&1) ? (0xEDB88320 ^ (c>>>1)) : (c>>>1); t[n]=c>>>0; } return t; })();
+function crc32(u8){ let c=0xFFFFFFFF; for(let i=0;i<u8.length;i++) c = CRC_TAB[(c ^ u8[i]) & 0xFF] ^ (c>>>8); return (c ^ 0xFFFFFFFF)>>>0; }
+function zipStore(arquivos){   /* [{nome, texto}] -> Uint8Array de um .zip (metodo STORE) */
+  const enc = new TextEncoder(); const partes=[]; const central=[]; let off=0;
+  const u16=n=>[n&255,(n>>8)&255], u32=n=>[n&255,(n>>8)&255,(n>>16)&255,(n>>>24)&255];
+  arquivos.forEach(a=>{
+    const nome=enc.encode(a.nome), dados=enc.encode(a.texto), crc=crc32(dados);
+    const loc=new Uint8Array([0x50,0x4b,3,4, ...u16(20), ...u16(0x0800), ...u16(0), ...u16(0), ...u16(0), ...u32(crc), ...u32(dados.length), ...u32(dados.length), ...u16(nome.length), ...u16(0)]);
+    partes.push(loc, nome, dados);
+    central.push(new Uint8Array([0x50,0x4b,1,2, ...u16(20), ...u16(20), ...u16(0x0800), ...u16(0), ...u16(0), ...u16(0), ...u32(crc), ...u32(dados.length), ...u32(dados.length), ...u16(nome.length), ...u16(0), ...u16(0), ...u16(0), ...u16(0), ...u32(0), ...u32(off)]), nome);
+    off += loc.length + nome.length + dados.length;
+  });
+  const cdSize = central.reduce((s,x)=>s+x.length,0);
+  const fim=new Uint8Array([0x50,0x4b,5,6, ...u16(0), ...u16(0), ...u16(arquivos.length), ...u16(arquivos.length), ...u32(cdSize), ...u32(off), ...u16(0)]);
+  const total=[...partes, ...central, fim]; const tam=total.reduce((s,x)=>s+x.length,0);
+  const out=new Uint8Array(tam); let i=0; total.forEach(x=>{ out.set(x,i); i+=x.length; }); return out;
+}
+const xmlEsc = t => String(t==null?'':t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+function colLetra(n){ let s=''; n++; while(n>0){ const r=(n-1)%26; s=String.fromCharCode(65+r)+s; n=Math.floor((n-1)/26); } return s; }
+/* linhas: array de arrays. Celula pode ser numero, texto, ou {v, s:'moeda'|'negrito'|'titulo'|'cinza'} */
+function xlsxDe(nomeAba, linhas, larguras){
+  const estilos = { normal:0, negrito:1, moeda:2, titulo:3, cinza:4, moedaNegrito:5, inteiro:6 };
+  let sheet = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">';
+  if(larguras && larguras.length){ sheet += '<cols>'+larguras.map((w,i)=>'<col min="'+(i+1)+'" max="'+(i+1)+'" width="'+w+'" customWidth="1"/>').join('')+'</cols>'; }
+  sheet += '<sheetData>';
+  linhas.forEach((lin,r)=>{
+    sheet += '<row r="'+(r+1)+'">';
+    lin.forEach((cel,c)=>{
+      if(cel==null || cel==='') return;
+      const ref = colLetra(c)+(r+1);
+      let v = cel, st = 'normal';
+      if(cel && typeof cel==='object'){ v = cel.v; st = cel.s||'normal'; }
+      if(v==null || v==='') return;
+      const sIdx = estilos[st]||0;
+      if(typeof v==='number') sheet += '<c r="'+ref+'" s="'+sIdx+'"><v>'+v+'</v></c>';
+      else sheet += '<c r="'+ref+'" s="'+sIdx+'" t="inlineStr"><is><t xml:space="preserve">'+xmlEsc(v)+'</t></is></c>';
+    });
+    sheet += '</row>';
+  });
+  sheet += '</sheetData></worksheet>';
+  const styles = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'+
+    '<numFmts count="2"><numFmt numFmtId="164" formatCode="&quot;R$&quot;\ #,##0.00"/><numFmt numFmtId="165" formatCode="0"/></numFmts>'+
+    '<fonts count="4"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="14"/><name val="Calibri"/></font><font><sz val="10"/><color rgb="FF736F6B"/><name val="Calibri"/></font></fonts>'+
+    '<fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFF2ECE3"/></patternFill></fill></fills>'+
+    '<borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>'+
+    '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>'+
+    '<cellXfs count="7">'+
+      '<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>'+
+      '<xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1"/>'+
+      '<xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>'+
+      '<xf numFmtId="0" fontId="2" fillId="0" borderId="0" xfId="0" applyFont="1"/>'+
+      '<xf numFmtId="0" fontId="3" fillId="0" borderId="0" xfId="0" applyFont="1"/>'+
+      '<xf numFmtId="164" fontId="1" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyFont="1"/>'+
+      '<xf numFmtId="165" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>'+
+    '</cellXfs></styleSheet>';
+  const wb = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="'+xmlEsc(nomeAba.slice(0,31))+'" sheetId="1" r:id="rId1"/></sheets></workbook>';
+  const wbRels = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>';
+  const rels = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>';
+  const ct = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>';
+  return zipStore([
+    {nome:'[Content_Types].xml', texto:ct}, {nome:'_rels/.rels', texto:rels},
+    {nome:'xl/workbook.xml', texto:wb}, {nome:'xl/_rels/workbook.xml.rels', texto:wbRels},
+    {nome:'xl/styles.xml', texto:styles}, {nome:'xl/worksheets/sheet1.xml', texto:sheet}
+  ]);
+}
+const TIPO_XLSX = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+/* planilha de UM pedido: cabecalho, itens, totais — pronta para a industria digitar */
+function xlsxDoPedido(ped){
+  const c = clienteDe(ped) || {}; const t = totais(ped);
+  const L = [];
+  L.push([{v:'Pedido '+ped.num+(ped.numCliente?' · pedido do cliente '+ped.numCliente:''), s:'titulo'}]);
+  L.push([{v:nomeMarca(), s:'cinza'}]);
+  L.push([]);
+  const par = (a,b)=>{ if(b!=null && b!=='') L.push([{v:a,s:'negrito'}, b]); };
+  par('Nº do pedido do cliente (usar na NF)', ped.numCliente||'');
+  par('Nosso controle', ped.num);
+  par('Data do pedido', dbr(ped.data));
+  par('Entrega combinada', ped.dataEntrega?dbr(ped.dataEntrega):'');
+  par('Situação', ped.status);
+  par('Pagamento', ped.cond||'');
+  L.push([]);
+  par('Cliente', c.razao||'');
+  par('Nome fantasia', (c.fantasia&&c.fantasia!==c.razao)?c.fantasia:'');
+  par('Código', [c.cod, c.codIndustria?'indústria '+c.codIndustria:''].filter(Boolean).join(' · '));
+  par('CNPJ', c.cnpj?cnpjBonito(c.cnpj):'');
+  par('Inscrição estadual', c.ie||'');
+  par('Regime', c.regime||'');
+  par('Canal', CANAL_NOME[c.canal]||'');
+  par('Entrega', [c.endereco, c.bairro, c.cidade, c.cep?'CEP '+cepBonito(c.cep):''].filter(Boolean).join(' — '));
+  par('Referência', c.referencia||'');
+  par('Descarga / agendamento', c.agendamento||'');
+  par('Contato', [c.contato, c.whats?telBonito(c.whats):'', c.fone?telBonito(c.fone):''].filter(Boolean).join(' — '));
+  par('E-mail', c.email||'');
+  L.push([]);
+  L.push(['#','Código','Produto','Marca','Caixas','Peso (kg)','Preço caixa','Total'].map(v=>({v,s:'negrito'})));
+  ped.itens.forEach((it,i)=>{
+    const p = porId[it.skuId] || {};
+    L.push([{v:i+1,s:'inteiro'}, it.cod||p.cod||'', it.nome||p.nome||'', p.marca||'', it.qtd, Math.round(kgDe(p,it.un)*it.qtd*100)/100, {v:it.preco,s:'moeda'}, {v:Math.round(it.preco*it.qtd*100)/100,s:'moeda'}]);
+  });
+  L.push([]);
+  L.push(['','','','','','',{v:'Subtotal',s:'negrito'},{v:Math.round(t.bruto*100)/100,s:'moeda'}]);
+  if(t.desc>0) L.push(['','','','','','',{v:'Desconto '+vlr(ped.desc).replace(/,00$/,'')+'%',s:'negrito'},{v:-Math.round(t.desc*100)/100,s:'moeda'}]);
+  L.push(['','','','',{v:t.cx,s:'negrito'},{v:Math.round(t.kg*100)/100,s:'negrito'},{v:'Total',s:'negrito'},{v:Math.round(t.liquido*100)/100,s:'moedaNegrito'}]);
+  if(ped.obs){ L.push([]); L.push([{v:'Observações',s:'negrito'}, ped.obs]); }
+  return xlsxDe('Pedido '+ped.num, L, [30, 10, 44, 8, 8, 10, 13, 13]);
+}
+/* Texto curto para corpo de e-mail e folha de compartilhar (a tabela inteira vai no PDF/planilha) */
+function resumoTexto(ped, paraCliente){
+  const cli = clienteDe(ped) || {}; const t = totais(ped);
+  const L = [];
+  L.push((paraCliente?'Confirmação de pedido':'Pedido')+' '+ped.num+' — '+nomeMarca());
+  if(ped.numCliente) L.push('Nº do pedido do cliente (usar na NF): '+ped.numCliente);
+  L.push('Cliente: '+(cli.fantasia||cli.razao||'—')+(cli.cidade?' — '+cli.cidade:''));
+  if(cli.cnpj) L.push('CNPJ: '+cnpjBonito(cli.cnpj));
+  L.push('Data: '+dbr(ped.data)+(ped.dataEntrega?' · Entrega combinada: '+dbr(ped.dataEntrega):''));
+  if(ped.cond) L.push('Pagamento: '+ped.cond);
+  L.push(t.itens+' item'+(t.itens===1?'':'s')+' · '+nm(t.cx, t.cx%1?1:0)+' cx · '+nm(t.kg,1)+' kg · Total '+brl(t.liquido));
+  if(cli.agendamento) L.push('Descarga: '+cli.agendamento);
+  L.push('');
+  L.push('Itens completos no PDF e na planilha em anexo.');
+  const rep = [D.cfg.repNome, D.cfg.repTel?telBonito(D.cfg.repTel):''].filter(Boolean).join(' · ');
+  if(rep) L.push(rep);
+  return L.join('\n');
+}
+
 function csvCampo(v){
   const s = String(v==null?'':v);
   return /[;"\n]/.test(s) ? '"'+s.replace(/"/g,'""')+'"' : s;
@@ -3602,14 +3921,19 @@ function versiculoDoDia(){
 function faixaVersiculo(){
   if(!D.cfg.versiculo) return '';
   if(D.cfg.versiculoVisto === hoje()) return '';
+  /* aparece uma vez na primeira abertura do dia e some sozinho, como uma
+     notificação — não fica fixo na tela */
+  D.cfg.versiculoVisto = hoje(); gravar(true);
+  clearTimeout(window.__tVers);
+  window.__tVers = setTimeout(()=>{ const n = document.getElementById('faixaVersiculo'); if(n){ n.style.transition='opacity .6s'; n.style.opacity='0'; setTimeout(()=>{ if(n.parentNode) n.parentNode.removeChild(n); }, 650); } }, 12000);
   const v = versiculoDoDia();
-  return '<div class="faixa" style="background:var(--branco);color:var(--grafite);border-color:var(--linha2)">'+
+  return '<div class="faixa" id="faixaVersiculo" style="background:var(--branco);color:var(--grafite);border-color:var(--linha2)">'+
     '<div style="width:100%"><b style="color:var(--grafite3);font-size:calc(11px * var(--esc));letter-spacing:.6px;text-transform:uppercase">Palavra do dia</b>'+
     '<div style="font-size:calc(15px * var(--esc));line-height:1.5;margin:4px 0 2px;font-style:italic">“'+esc(v[1])+'”</div>'+
     (v[0]?'<div class="peq">'+esc(v[0])+'</div>':'')+
     '<button data-a="versiculoVisto" style="display:block;color:var(--grafite3)">Fechar</button></div></div>';
 }
-ACOES.versiculoVisto = () => { D.cfg.versiculoVisto = hoje(); gravar(true); render(); };
+ACOES.versiculoVisto = () => { const n = document.getElementById('faixaVersiculo'); if(n && n.parentNode) n.parentNode.removeChild(n); };
 ACOES.setVersiculo = v => { D.cfg.versiculo = (v==='1'); gravar(true); render(); aviso(D.cfg.versiculo?'Palavra do dia ligada':'Palavra do dia desligada'); };
 ENTRADAS.cfgVersiculos = v => { D.cfg.versiculos = v; gravar(true); };
 
@@ -4096,9 +4420,16 @@ ACOES.lerBackup = () => {
   else aplicarBackup(t);
 };
 ACOES.apagarTudo = () => {
-  confirmar('Apagar todos os dados?',
-    'Clientes, pedidos e ajustes deste aparelho serão apagados. Só o backup traz de volta.',
-    'Apagar tudo','bt-r', ()=>{
+  modal('Apagar todos os dados deste aparelho?',
+    '<div class="aviso" style="margin-bottom:12px">'+ico('alerta')+'<span>Isto zera <b>este aparelho</b>: clientes, pedidos e ajustes. '+
+    'O que já subiu para a nuvem continua lá e volta com "Baixar da nuvem". O que ainda não subiu, some.</span></div>'+
+    '<div class="campo mb0"><label>Para confirmar, digite APAGAR</label><input type="text" id="ap_conf" autocapitalize="characters" autocomplete="off"></div>',
+    '<div class="linha-bt"><button class="bt bt-l" data-a="fechaModal">Voltar</button><button class="bt bt-r" data-a="apagarTudoConf">Apagar tudo</button></div>');
+};
+ACOES.apagarTudoConf = () => {
+  if((el('ap_conf')||{}).value !== 'APAGAR'){ aviso('Digite APAGAR para confirmar.'); return; }
+  fechaModal();
+  (()=>{
       try{ localStorage.removeItem(K_DADOS); localStorage.removeItem(K_CAT); }catch(e){}
       /* a nuvem e configuracao do aparelho, nao dado: sobrevive ao "apagar tudo"
          para que baixar de volta seja um toque (achado no teste de 03/09) */
@@ -4108,7 +4439,7 @@ ACOES.apagarTudo = () => {
       normalizarMarcas(); normalizarNuvem();
       CAT = CATALOGO.map(p=>Object.assign({},p));
       refazIndice(); gravar(); VISTA=null; render(); aviso('Tudo apagado');
-    });
+    })();
 };
 
 /* =====================================================
@@ -4146,6 +4477,117 @@ const BASE_ACENTO = {
   'Á':'A','À':'A','Ã':'A','Â':'A','É':'E','Ê':'E','Í':'I','Ó':'O','Ô':'O','Õ':'O','Ú':'U','Ç':'C','Ñ':'N',
   '—':'-','–':'-','·':'.','…':'...','−':'-','“':'"','”':'"','‘':"'",'’':"'"
 };
+/* =====================================================
+   FICHA CADASTRAL DO CLIENTE — para mandar à indústria
+   (primeiro pedido, cadastro novo). PDF + planilha + texto.
+   ===================================================== */
+function dadosFicha(c){
+  const L = [];
+  const par = (a,b)=>{ if(b!=null && String(b).trim()!=='') L.push([a, String(b)]); };
+  par('Razão social', c.razao);
+  par('Nome fantasia', (c.fantasia && c.fantasia!==c.razao) ? c.fantasia : '');
+  par('Rede', c.rede ? c.rede + (c.loja?' — loja '+c.loja:'') : (c.loja?'loja '+c.loja:''));
+  par('CNPJ', c.cnpj ? cnpjBonito(c.cnpj) : '');
+  par('Inscrição estadual', c.ie);
+  par('Regime tributário', c.regime);
+  par('Canal', CANAL_NOME[c.canal]);
+  par('Código do representante', c.cod);
+  par('Código na indústria', c.codIndustria);
+  par('Endereço de entrega', c.endereco);
+  par('Bairro', c.bairro);
+  par('Cidade', c.cidade);
+  par('CEP', c.cep ? cepBonito(c.cep) : '');
+  par('Ponto de referência', c.referencia);
+  par('Descarga / agendamento', c.agendamento);
+  par('Contato', c.contato);
+  par('WhatsApp', c.whats ? telBonito(c.whats) : '');
+  par('Telefone fixo', c.fone ? telBonito(c.fone) : '');
+  par('E-mail', c.email);
+  par('E-mail para o XML da NF', c.emailXml || (c.email ? c.email + ' (mesmo)' : ''));
+  par('E-mail do financeiro', c.emailFin);
+  par('Condição de pagamento', c.cond);
+  par('Observações', c.obs);
+  return L;
+}
+function pdfDaFicha(c){
+  const A4L = 595.28, A4A = 841.89, M = 38;
+  const paginas = []; const recursos = {};
+  const pg = NovaPagina(A4L, A4A); paginas.push(pg);
+  let y = M;
+  const mk = marcaAtual();
+  const fim = pg.txt(M, y+16, (mk.logo1||mk.nome||'')+' ', {tam:20, negrito:true, cor:GRAFITE_PDF});
+  if(mk.logo2) pg.txt(fim, y+16, mk.logo2, {tam:20, negrito:true, cor:DOURADO_PDF});
+  pg.txt(M, y+29, 'Ficha cadastral de cliente', {tam:8, cor:CINZA_PDF});
+  pg.txt(A4L-M, y+12, dbr(hoje()), {tam:9, cor:CINZA_PDF, align:'r'});
+  if(c.cod) pg.txt(A4L-M, y+26, 'Cód. '+c.cod, {tam:9, negrito:true, cor:GRAFITE_PDF, align:'r'});
+  y += 40; pg.linha(M, y, A4L-M, y, 2, GRAFITE_PDF); y += 22;
+  pg.txt(M, y, c.razao||'', {tam:15, negrito:true, cor:GRAFITE_PDF}); y += 10;
+  if(c.fantasia && c.fantasia!==c.razao){ y += 12; pg.txt(M, y, c.fantasia, {tam:10, cor:CINZA_PDF}); }
+  y += 20;
+  const linhas = dadosFicha(c);
+  const wRot = 150, wVal = A4L - 2*M - wRot - 8;
+  linhas.forEach((par,i)=>{
+    const partes = quebraTexto(par[1], 9.5, false, wVal);
+    const alt = Math.max(1, partes.length) * 12 + 8;
+    if(i%2===0) pg.ret(M, y-9, A4L-2*M, alt, CREME_PDF);
+    pg.txt(M+6, y+3, par[0], {tam:8.5, cor:CINZA_PDF});
+    partes.forEach((t,k)=>{ pg.txt(M+wRot+8, y+3+k*12, t, {tam:9.5, negrito:k===0, cor:GRAFITE_PDF}); });
+    y += alt;
+  });
+  y += 16; pg.linha(M, y, A4L-M, y, 0.5, LINHA_PDF); y += 16;
+  const rep = [D.cfg.repNome, D.cfg.repEmpresa, D.cfg.repTel?telBonito(D.cfg.repTel):'', D.cfg.repEmail].filter(Boolean).join('  ·  ');
+  pg.txt(M, y, 'Representante: '+rep, {tam:8.5, cor:CINZA_PDF});
+  return montarPdf(paginas, recursos);
+}
+/* quebra um texto em linhas que cabem na largura (mesma métrica do PDF) */
+function quebraTexto(texto, tam, neg, larg){
+  const palavras = String(texto||'').split(/\s+/); const out = []; let atual = '';
+  palavras.forEach(w=>{ const tent = atual ? atual+' '+w : w; if(larguraTexto(tent, tam, neg) <= larg) atual = tent; else { if(atual) out.push(atual); atual = w; } });
+  if(atual) out.push(atual); return out.length ? out : [''];
+}
+function xlsxDaFicha(c){
+  const L = [[{v:'Ficha cadastral — '+(c.razao||''), s:'titulo'}], [{v:nomeMarca()+' · '+dbr(hoje()), s:'cinza'}], []];
+  dadosFicha(c).forEach(par=>L.push([{v:par[0], s:'negrito'}, par[1]]));
+  return xlsxDe('Ficha', L, [30, 70]);
+}
+function textoFicha(c){
+  const L = ['FICHA CADASTRAL — '+nomeMarca(), _REGUA];
+  dadosFicha(c).forEach(par=>L.push(par[0]+': '+par[1]));
+  L.push('', 'Representante: '+[D.cfg.repNome, D.cfg.repTel?telBonito(D.cfg.repTel):'', D.cfg.repEmail].filter(Boolean).join(' · '));
+  return L.join('\n');
+}
+function nomeFicha(c, ext){
+  const ap = sac(c.fantasia||c.razao).replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'').slice(0,24) || 'cliente';
+  return 'ficha-'+(c.cod?c.cod.toLowerCase()+'-':'')+ap+'.'+ext;
+}
+ACOES.compartilharFicha = async id => {
+  const c = clientePorId(id); if(!c) return;
+  if(c.demo){ aviso('Cliente de exemplo não vai para a indústria.'); return; }
+  let arquivos;
+  try{
+    arquivos = [ new File([pdfDaFicha(c)], nomeFicha(c,'pdf'), {type:'application/pdf'}),
+                 new File([xlsxDaFicha(c)], nomeFicha(c,'xlsx'), {type:TIPO_XLSX}) ];
+  }catch(e){ aviso('Não consegui montar a ficha: '+e.message); return; }
+  const assunto = 'Cadastro de cliente — '+(c.fantasia||c.razao)+(c.cnpj?' — CNPJ '+cnpjBonito(c.cnpj):'');
+  const corpo = 'Segue a ficha cadastral de '+(c.razao||'')+(c.cidade?' ('+c.cidade+')':'')+' para cadastro e faturamento.\n'+
+    'Canal: '+(CANAL_NOME[c.canal]||'')+(c.cond?' · Pagamento: '+c.cond:'')+'\nDados completos no PDF e na planilha em anexo.\n\n'+
+    [D.cfg.repNome, D.cfg.repTel?telBonito(D.cfg.repTel):''].filter(Boolean).join(' · ');
+  try{
+    if(navigator.canShare && navigator.canShare({files:arquivos})){
+      await navigator.share({ files:arquivos, title:assunto, text:corpo });
+      return;
+    }
+  }catch(e){ if(e && e.name==='AbortError') return; }
+  modal('Ficha de '+esc(c.fantasia||c.razao),
+    '<div class="peq" style="margin-bottom:10px">Este navegador não abre a folha de compartilhar. Salve os arquivos e anexe no e-mail para a indústria.</div>'+
+    '<div class="linha-bt"><button class="bt bt-l" data-a="fichaPDF" data-i="'+esc(id)+'">Salvar PDF</button>'+
+    '<button class="bt bt-l" data-a="fichaXLSX" data-i="'+esc(id)+'">Salvar planilha</button></div>'+
+    '<button class="bt bt-l bt-bloco mt10" data-a="fichaCopiar" data-i="'+esc(id)+'">'+ico('copiar')+'Copiar texto da ficha</button>');
+};
+ACOES.fichaPDF   = id => { const c=clientePorId(id); if(c) baixar(nomeFicha(c,'pdf'), pdfDaFicha(c), 'application/pdf'); };
+ACOES.fichaXLSX  = id => { const c=clientePorId(id); if(c) baixar(nomeFicha(c,'xlsx'), xlsxDaFicha(c), TIPO_XLSX); };
+ACOES.fichaCopiar= id => { const c=clientePorId(id); if(c) copiar(textoFicha(c)); };
+
 function larguraTexto(s, tam, negrito){
   const tab = negrito ? LARG_NEGRITO : LARG_NORMAL;
   let soma = 0;
@@ -4308,9 +4750,11 @@ function pdfDoPedido(ped, paraCliente){
     pg.txt(x0 + wr, yy, valor, {tam:tamV, negrito:true, cor:GRAFITE_PDF});
   }
   let yd = y+9;
-  parDireita(yd, 'Pedido', ped.num, 9.5, 11); yd += 14;
   if(ped.numCliente){
-    parDireita(yd, 'Pedido do cliente', ped.numCliente, 9, 9.5); yd += 13;
+    parDireita(yd, 'Pedido do cliente (usar na NF)', ped.numCliente, 9.5, 12); yd += 15;
+    parDireita(yd, 'Nosso controle', ped.num, 8.5, 9); yd += 12;
+  } else {
+    parDireita(yd, 'Pedido', ped.num, 9.5, 11); yd += 14;
   }
   pg.txt(A4L-M, yd, dbr(ped.data), {tam:9, cor:CINZA_PDF, align:'r'}); yd += 12;
   if(ped.dataEntrega){ parDireita(yd, 'Entrega', dbr(ped.dataEntrega), 9, 9.5); yd += 13; }
@@ -4326,6 +4770,8 @@ function pdfDoPedido(ped, paraCliente){
   const dados = [
     ['Razão social', cli.razao],
     ['Nome fantasia', (cli.fantasia && cli.fantasia!==cli.razao) ? cli.fantasia : ''],
+    ['Código', [cli.cod, cli.codIndustria?'indústria '+cli.codIndustria:''].filter(Boolean).join(' - ')],
+    ['Descarga', cli.agendamento],
     ['CNPJ', cnpjBonito(cli.cnpj)],
     ['Inscrição estadual', cli.ie],
     ['Regime', cli.regime],
@@ -4517,7 +4963,7 @@ ACOES.gerarPDF = (id, variante) => {
 };
 ACOES.gerarCSVPedido = id => {
   const ped = pedidoPorId(id); if(!ped) return;
-  baixar(nomeArquivo(ped,'csv'), '﻿'+csvDoPedido(ped), 'text/csv;charset=utf-8');
+  baixar(nomeArquivo(ped,'xlsx'), xlsxDoPedido(ped), TIPO_XLSX);
 };
 
 /* Compartilhar abre a folha do aparelho com os arquivos já anexados —
@@ -4531,8 +4977,7 @@ ACOES.compartilhar = async (id, variante) => {
   try{
     arquivos = [ new File([pdfDoPedido(ped, paraCliente)],
                           nomeArquivo(ped,'pdf',paraCliente), {type:'application/pdf'}) ];
-    if(!paraCliente) arquivos.push(new File([new Blob(['﻿'+csvDoPedido(ped)])],
-                                            nomeArquivo(ped,'csv'), {type:'text/csv'}));
+    if(!paraCliente) arquivos.push(new File([xlsxDoPedido(ped)], nomeArquivo(ped,'xlsx'), {type:TIPO_XLSX}));
     if(!paraCliente && ped.anexo && ped.anexo.dados){
       const bin = atob(ped.anexo.dados.split(',')[1]);
       const b = new Uint8Array(bin.length);
@@ -4547,7 +4992,7 @@ ACOES.compartilhar = async (id, variante) => {
       await navigator.share({
         files: arquivos,
         title: assuntoPedido(ped, paraCliente),
-        text: montarTexto(ped, false, paraCliente)
+        text: resumoTexto(ped, paraCliente)
       });
       if(!paraCliente) perguntarSeSaiu(ped);
       return;
@@ -5414,11 +5859,12 @@ function emailHtml(ped, paraCliente){
       '<div style="'+fonte+';font-size:calc(12px * var(--esc));font-weight:800;letter-spacing:1.5px;color:'+EM.dourado+'">'+
         esc(nomeMarca().toUpperCase())+'</div>'+
       '<div style="'+fonte+';font-size:calc(20px * var(--esc));font-weight:700;color:'+EM.creme+';padding-top:3px">'+
-        (paraCliente?'Confirmação de pedido':'Pedido')+' '+esc(ped.num)+'</div>'+
+        (ped.numCliente
+          ? (paraCliente?'Confirmação do pedido':'Pedido do cliente')+' '+esc(ped.numCliente)
+          : (paraCliente?'Confirmação de pedido':'Pedido')+' '+esc(ped.num))+'</div>'+
       '<div style="'+fonte+';font-size:calc(12.5px * var(--esc));color:#B7B0A9;padding-top:4px">'+
         dbr(ped.data)+
-        (ped.numCliente?' &nbsp;·&nbsp; Pedido do cliente: <span style="color:'+EM.creme+'">'+
-          esc(ped.numCliente)+'</span>':'')+
+        (ped.numCliente?' &nbsp;·&nbsp; Nosso controle: <span style="color:'+EM.creme+'">'+esc(ped.num)+'</span>':'')+
         (ped.dataEntrega?' &nbsp;·&nbsp; Entrega: <span style="color:'+EM.dourado+';font-weight:700">'+
           dbr(ped.dataEntrega)+'</span>':'')+
       '</div>'+
@@ -5433,7 +5879,9 @@ function emailHtml(ped, paraCliente){
   if(cli.cnpj)      campos.push(['CNPJ', cnpjBonito(cli.cnpj)]);
   if(cli.ie)        campos.push(['Inscrição estadual', cli.ie]);
   if(cli.regime)    campos.push(['Regime tributário', cli.regime]);
+  if(cli.cod || cli.codIndustria) campos.push(['Código', [cli.cod, cli.codIndustria?'indústria '+cli.codIndustria:''].filter(Boolean).join(' — ')]);
   campos.push(['Canal', CANAL_NOME[cli.canal] || '—']);
+  if(cli.agendamento) campos.push(['Descarga / agendamento', cli.agendamento]);
   if(cli.endereco)   campos.push(['Endereço de entrega', cli.endereco]);
   if(cli.bairro || cli.cidade)
     campos.push(['Bairro / cidade', [cli.bairro, cli.cidade].filter(Boolean).join(' — ')]);
@@ -5656,7 +6104,10 @@ function tituloTela(){
   const ped = pedidoRascunho();
   switch(ABA){
     case 'pedido':
-      return {tit:'Novo pedido', sub: ped && ped.clienteId ? ('Pedido '+ped.num) : 'Escolha o cliente'};
+      /* com cliente escolhido a tela e a montagem: ganha seta de voltar (check-in feito) */
+      return {tit: ped && ped.clienteId ? 'Montar pedido' : 'Novo pedido',
+              sub: ped && ped.clienteId ? ('Pedido '+ped.num) : 'Escolha o cliente',
+              volta: !!(ped && ped.clienteId)};
     case 'clientes':  return {tit:'Clientes', sub:D.clientes.length+' na carteira'};
     case 'painel':    return {tit:'Painel',   sub:perRot(PER)};
     case 'historico': return {tit:'Histórico',sub:D.pedidos.length+' pedido'+(D.pedidos.length===1?'':'s')};
@@ -5832,6 +6283,7 @@ function fixarArmazenamento(){
 document.documentElement.setAttribute('data-letra', D.cfg.letra || 'p');
 aplicarTema();
 aplicarMarca();
+garantirCodigosClientes();
 ligarNuvem();
 ouvirTemaDoAparelho();
 semearNaPrimeiraVez();
