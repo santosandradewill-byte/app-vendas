@@ -1271,6 +1271,8 @@ function seletorCliente(){
   h += '<div class="busca" style="margin-bottom:10px">'+ico('busca')+
        '<input type="text" placeholder="Buscar cliente" value="'+esc(bqCli)+'" data-in="bqCli">'+
        (bqCli?'<button class="limpar" data-a="limpaCli">'+ico('x')+'</button>':'')+'</div>';
+  /* cadastrar novo fica no alto: com a carteira grande, ninguem rola ate o fim para achar o botao */
+  h += '<button class="bt bt-l bt-bloco" style="margin-bottom:10px" data-a="novoCliente">'+ico('mais')+'Novo cliente</button>';
   h += '<div class="cartao">';
   if(!lista.length) h += '<div class="vazio">'+ico('busca')+'<p>Nenhum cliente com esse nome</p></div>';
   lista.forEach(c=>{
@@ -1280,13 +1282,13 @@ function seletorCliente(){
       '<span class="ini">'+esc(iniciais(c.fantasia||c.razao))+'</span>'+
       '<span class="info"><span class="nm">'+esc(c.fantasia||c.razao)+'</span>'+
       '<span class="sub"><span class="et '+(c.canal==='VAREJO'?'et-vrj':'et-fs')+'">'+CANAL_NOME[c.canal]+'</span>'+
+      (c.segmento?'<span>'+esc(c.segmento)+'</span>':'')+
       (c.cidade?'<span>'+esc(c.cidade)+'</span>':'')+
       (d===null?'<span>nunca comprou</span>':'<span>há '+d+' dia'+(d===1?'':'s')+'</span>')+
       '</span></span>'+
       '<span class="seta">'+ico('seta')+'</span></button>';
   });
   h += '</div>';
-  h += '<button class="bt bt-l bt-bloco" data-a="novoCliente">'+ico('mais')+'Novo cliente</button>';
   return h;
 }
 /* C0001, C0002... unico por cliente neste aparelho; clientes antigos ganham o deles na abertura */
@@ -1720,7 +1722,7 @@ function montarTexto(ped, marcado, paraCliente){
   if(cli.cnpj)   L.push('CNPJ: '+cnpjBonito(cli.cnpj));
   if(cli.ie)     L.push('Inscrição estadual: '+cli.ie);
   if(cli.regime) L.push('Regime: '+cli.regime);
-  L.push('Canal: '+(CANAL_NOME[cli.canal]||'—'));
+  L.push('Canal: '+(CANAL_NOME[cli.canal]||'—')+(cli.segmento?' · '+cli.segmento:''));
   if(cli.endereco)   L.push('Entrega: '+cli.endereco);
   const reg = [cli.bairro, cli.cidade].filter(Boolean).join(' — ');
   if(reg)            L.push('Bairro/cidade: '+reg);
@@ -2322,6 +2324,17 @@ function copiaVelha(txt, ok){
    ===================================================== */
 let bqClientes = '';
 let fCliCanal = null;
+let fCliSeg   = null;
+/* Tipos de negocio sugeridos no cadastro. O Canal continua mandando na tabela de preco;
+   o tipo e para ele saber quem e quem e para o Painel somar por tipo. Pode digitar outro. */
+const SEGMENTOS = ['Padaria','Lanchonete','Cafeteria','Restaurante','Pizzaria','Bar','Hotel / Pousada',
+  'Supermercado','Mercadinho','Mercearia','Hortifruti','Açougue','Conveniência','Empório / Delicatessen',
+  'Distribuidor / Atacado','Cozinha industrial','Escola / Refeitório','Outro'];
+function contarSegmentos(lista){
+  const m = {};
+  lista.forEach(c=>{ const k=(c.segmento||'').trim(); if(k) m[k]=(m[k]||0)+1; });
+  return Object.keys(m).map(k=>({nome:k, n:m[k]})).sort((a,b)=>b.n-a.n || a.nome.localeCompare(b.nome,'pt-BR'));
+}
 
 function resumoCliente(id){
   const ps = D.pedidos.filter(p=>p.clienteId===id && VALE(p.status));
@@ -2371,7 +2384,8 @@ function telaClientes(){
   const q = sac(bqClientes).trim();
   let lista = D.clientes.slice();
   if(fCliCanal) lista = lista.filter(c=>c.canal===fCliCanal);
-  if(q) lista = lista.filter(c=>sac([c.razao,c.fantasia,c.loja,c.rede,c.bairro,c.cidade,c.cnpj,c.contato].join(' ')).indexOf(q)>-1);
+  if(fCliSeg)   lista = lista.filter(c=>(c.segmento||'')===fCliSeg);
+  if(q) lista = lista.filter(c=>sac([c.razao,c.fantasia,c.loja,c.rede,c.bairro,c.cidade,c.cnpj,c.contato,c.segmento].join(' ')).indexOf(q)>-1);
   lista.sort((a,b)=>
     (a.rede||'\uffff').localeCompare(b.rede||'\uffff','pt-BR') ||
     nomeCli(a).localeCompare(nomeCli(b),'pt-BR'));
@@ -2387,6 +2401,19 @@ function telaClientes(){
     '<button class="chip '+(fCliCanal==='VAREJO'?'on':'')+'" data-a="setCliCanal" data-i="VAREJO">Varejo<span class="n">'+nV+'</span></button>'+
     '<button class="chip '+(fCliCanal==='FOODSERVICE'?'on':'')+'" data-a="setCliCanal" data-i="FOODSERVICE">Food Service<span class="n">'+nF+'</span></button>'+
     '</div>';
+
+  /* segunda fila de filtros: o tipo de negocio (padaria, supermercado...), so quando alguem tem */
+  const segs = contarSegmentos(D.clientes.filter(c=>!fCliCanal || c.canal===fCliCanal));
+  if(segs.length){
+    h += '<div class="chips" style="margin-top:-4px">'+
+      '<button class="chip '+(!fCliSeg?'on':'')+'" data-a="setCliSeg" data-i="">Todos os tipos</button>'+
+      segs.map(x=>'<button class="chip '+(fCliSeg===x.nome?'on':'')+'" data-a="setCliSeg" data-i="'+esc(x.nome)+'">'+
+        esc(x.nome)+'<span class="n">'+x.n+'</span></button>').join('')+
+      '</div>';
+  }
+
+  /* cadastrar novo fica no alto: com 200 clientes ninguem rola ate o fim para achar o botao */
+  h += '<button class="bt bt-d bt-bloco" style="margin-bottom:10px" data-a="novoCliente">'+ico('mais')+'Novo cliente</button>';
 
   if(!D.clientes.length){
     h += '<div class="cartao"><div class="vazio">'+ico('clientes')+'<p>Sua carteira começa aqui</p>'+
@@ -2404,6 +2431,7 @@ function telaClientes(){
         '<span class="sub">'+
           (c.rede?'<span class="et et-rede">'+esc(c.rede)+'</span>':'')+
           '<span class="et '+(c.canal==='VAREJO'?'et-vrj':'et-fs')+'">'+CANAL_NOME[c.canal]+'</span>'+
+          (c.segmento?'<span>'+esc(c.segmento)+'</span>':'')+
           (c.demo?'<span class="et et-ex">exemplo</span>':'')+
           (regiao(c)?'<span>'+esc(regiao(c))+'</span>':'')+
           (r.dias===null?'<span>nunca comprou</span>':
@@ -2414,7 +2442,6 @@ function telaClientes(){
     });
     h += '</div>';
   }
-  h += '<button class="bt bt-d bt-bloco" data-a="novoCliente">'+ico('mais')+'Novo cliente</button>';
   return h;
 }
 
@@ -2435,6 +2462,7 @@ function telaCliente(){
           (c.rede?'<button class="et et-rede" data-a="verRede" data-i="'+esc(c.rede)+'">'+
             esc(c.rede)+'</button>':'')+
           '<span class="et '+(c.canal==='VAREJO'?'et-vrj':'et-fs')+'">'+CANAL_NOME[c.canal]+'</span>'+
+          (c.segmento?'<span class="et et-rede" style="cursor:default">'+esc(c.segmento)+'</span>':'')+
           (c.demo?'<span class="et et-ex">exemplo</span>':'')+'</div>'+
       '</div></div>'+
     '<hr>'+
@@ -2543,6 +2571,11 @@ function telaFormCliente(){
     '</div>'+
     '<div class="dica mt10">CNPJ, inscrição estadual e regime são o que a indústria precisa '+
     'para emitir a nota. Sem eles o pedido trava no faturamento.</div>'+
+    '<div class="campo mb0" style="margin-top:14px"><label>Tipo de negócio</label>'+
+      '<input type="text" id="f_segmento" value="'+esc(c.segmento||'')+'" list="segmentos" '+
+      'placeholder="Padaria, supermercado, lanchonete...">'+
+      '<div class="dica">O <b>Canal</b> decide a tabela de preço (Varejo ou Food Service). O tipo é para você '+
+      'saber quem é quem — e o Painel soma a venda por tipo. Toque para ver a lista ou escreva outro.</div></div>'+
   '</div></div>';
 
   h += '<div class="secao">Códigos</div><div class="cartao"><div class="corpo">'+
@@ -2591,6 +2624,7 @@ function telaFormCliente(){
     .map(function(x){ return '<option value="'+x+'">'; }).join('')+'</datalist>';
   h += '<datalist id="redes">'+ redesCadastradas()
     .map(function(x){ return '<option value="'+esc(x)+'">'; }).join('')+'</datalist>';
+  h += '<datalist id="segmentos">'+ SEGMENTOS.map(o=>'<option value="'+esc(o)+'">').join('') +'</datalist>';
   h += '<datalist id="bairros">'+ bairrosCadastrados()
     .map(function(x){ return '<option value="'+esc(x)+'">'; }).join('')+'</datalist>';
   return h;
@@ -2605,7 +2639,8 @@ function cepBonito(v){
 ENTRADAS.bqClientes = v => { bqClientes=v; render();
   const i=document.querySelector('[data-in="bqClientes"]'); if(i){i.focus(); i.setSelectionRange(v.length,v.length);} };
 ACOES.limpaClientes = () => { bqClientes=''; render(); };
-ACOES.setCliCanal = c => { fCliCanal = c||null; render(); };
+ACOES.setCliCanal = c => { fCliCanal = c||null; fCliSeg = null; render(); };
+ACOES.setCliSeg   = c => { fCliSeg = c||null; render(); };
 ACOES.verCliente  = id => { VISTA={t:'cliente', id:id}; window.scrollTo(0,0); render(); };
 ACOES.novoCliente = () => { VISTA={t:'formCliente', id:null}; window.scrollTo(0,0); render(); };
 ACOES.editarCliente = id => { VISTA={t:'formCliente', id:id}; window.scrollTo(0,0); render(); };
@@ -2624,7 +2659,8 @@ ACOES.salvarCliente = id => {
     contato:g('contato'), whats:soN(g('whats')), fone:soN(g('fone')), email:g('email'),
     cep:soN(g('cep')), endereco:g('endereco'), referencia:g('referencia'), bairro:g('bairro'),
     cidade:g('cidade'), cond:g('cond'), obs:g('obs'),
-    emailXml:g('emailXml'), emailFin:g('emailFin'), codIndustria:g('codIndustria'), agendamento:g('agendamento')
+    emailXml:g('emailXml'), emailFin:g('emailFin'), codIndustria:g('codIndustria'), agendamento:g('agendamento'),
+    segmento:g('segmento')
   };
   /* CNPJ e unico: dois cadastros para o mesmo CNPJ viram dois clientes no painel e na industria */
   if(dados.cnpj){
@@ -2770,10 +2806,19 @@ function dadosPer(P){
     });
   });
   const porCanal = {VAREJO:0, FOODSERVICE:0};
+  const porSeg = {};
   peds.forEach(p=>{
     const c = clientePorId(p.clienteId);
-    if(c && porCanal[c.canal] !== undefined) porCanal[c.canal] += totais(p).liquido;
+    const v = totais(p).liquido;
+    if(c && porCanal[c.canal] !== undefined) porCanal[c.canal] += v;
+    /* por tipo de negocio: quem nao tem tipo entra como "Sem tipo", para a conta fechar */
+    const k = (c && c.segmento && c.segmento.trim()) || 'Sem tipo';
+    if(!porSeg[k]) porSeg[k] = {nome:k, val:0, n:0, cli:{}};
+    porSeg[k].val += v; porSeg[k].n += 1; if(c) porSeg[k].cli[c.id] = 1;
   });
+  const porSegmento = Object.keys(porSeg).map(k=>porSeg[k])
+    .map(x=>({nome:x.nome, val:x.val, n:x.n, clientes:Object.keys(x.cli).length}))
+    .sort((a,b)=>b.val-a.val);
 
   const hj = hoje();
   const ehMesAtual = hj>=f.ini && hj<=f.fim;
@@ -2792,6 +2837,7 @@ function dadosPer(P){
     topProd: Object.keys(prods).map(k=>prods[k]).sort((a,b)=>b.val-a.val).slice(0,5),
     topCli: Object.keys(cliVal).map(k=>({id:k, val:cliVal[k]})).sort((a,b)=>b.val-a.val).slice(0,5),
     porCanal: porCanal,
+    porSegmento: porSegmento,
     quemComprou: clientes
   };
 }
@@ -3050,6 +3096,25 @@ function painelDoMes(){
         '<span><i style="background:#1E7A4D"></i>Varejo '+nm(pv,0)+'% · '+brl0(m.porCanal.VAREJO)+'</span>'+
         '<span><i style="background:#B8860B"></i>Food Service '+nm(100-pv,0)+'% · '+brl0(m.porCanal.FOODSERVICE)+'</span>'+
       '</div></div></div>';
+  }
+
+  /* --- por tipo de negocio (padaria, supermercado...) --- */
+  const segsComTipo = (m.porSegmento||[]).filter(x=>x.nome!=='Sem tipo');
+  if(segsComTipo.length){
+    const maxs = m.porSegmento[0].val || 1;
+    const semTipo = (m.porSegmento||[]).find(x=>x.nome==='Sem tipo');
+    h += '<div class="cartao"><div class="cab">'+ico('clientes')+'<h2>Por tipo de negócio</h2></div>'+
+      '<div class="corpo">';
+    m.porSegmento.forEach((x,i)=>{
+      const pct = m.total>0 ? x.val/m.total*100 : 0;
+      h += '<div class="rank"><span class="pos">'+(i+1)+'</span>'+
+        '<span class="nm" style="flex:1"><span style="display:block">'+esc(x.nome)+
+          ' <span style="color:var(--cinza);font-weight:600">· '+x.clientes+' cliente'+(x.clientes===1?'':'s')+' · '+x.n+' pedido'+(x.n===1?'':'s')+'</span></span>'+
+        '<span class="mini"><i style="width:'+((x.val/maxs)*100).toFixed(1)+'%'+(x.nome==='Sem tipo'?';background:var(--linha2)':'')+'"></i></span></span>'+
+        '<span class="vl">'+brl0(x.val)+'<br><span style="font-size:calc(11px * var(--esc));color:var(--cinza);font-weight:600">'+nm(pct,0)+'%</span></span></div>';
+    });
+    if(semTipo) h += '<div class="peq" style="margin-top:10px">"Sem tipo" são clientes sem o tipo de negócio no cadastro. Preencha em Clientes › editar para a conta ficar completa.</div>';
+    h += '</div></div>';
   }
 
   /* --- gráfico --- */
@@ -3329,6 +3394,7 @@ function xlsxDoPedido(ped){
   par('Inscrição estadual', c.ie||'');
   par('Regime', c.regime||'');
   par('Canal', CANAL_NOME[c.canal]||'');
+  par('Tipo de negócio', c.segmento||'');
   par('Entrega', [c.endereco, c.bairro, c.cidade, c.cep?'CEP '+cepBonito(c.cep):''].filter(Boolean).join(' — '));
   par('Referência', c.referencia||'');
   par('Descarga / agendamento', c.agendamento||'');
@@ -4012,7 +4078,7 @@ ACOES.nuvemLogar = async () => {
     const js = await nuvemFetch('/auth/v1/token?grant_type=password', { email, password: senha }, true);
     guardarSessao(sessaoDe(js));
     let quem = null; try{ quem = await nuvemFetch('/rest/v1/rpc/quem_sou', {}); }catch(e){}
-    D.nuvem.quem = quem; D.nuvem.erro = ''; gravar(true); fechaModal(); render();
+    D.nuvem.quem = quem; D.nuvem.erro = ''; gravar(true); ajustarRepDaNuvem(); fechaModal(); render();
     if(quem && !quem.vendedor){ aviso('Entrou, mas este usuário não está amarrado a uma empresa. Avise o Willian.'); return; }
     aviso('Entrou como '+((quem&&quem.vendedor)||email));
     if(!CAT.length) await ACOES.catalogoBaixar(true);
@@ -4236,7 +4302,25 @@ function faixaNuvem(){
   return '';
 }
 /* liga os gatilhos: abrir, voltar para a frente, sinal voltar */
+/* O nome que assina os documentos vem do cadastro do vendedor na nuvem, a menos que ele
+   tenha escrito outro em Ajustes. Enquanto estava vazio, o app punha "Vendedor de exemplo"
+   e isso saia no rodape do e-mail e do PDF. */
+function ajustarRepDaNuvem(){
+  const q = D.nuvem && D.nuvem.quem; if(!q || !q.vendedor) return false;
+  const demo = (D.demoCfg && D.demoCfg.repNome) || 'Vendedor de exemplo';
+  if(!D.cfg.repNome || D.cfg.repNome===demo || D.cfg.repNome==='Vendedor de exemplo'){
+    D.cfg.repNome = q.vendedor; gravar(true); return true;
+  }
+  return false;
+}
 function ligarNuvem(){
+  ajustarRepDaNuvem();
+  /* se entrou mas o app nao guardou quem e (falha na hora do login), pergunta de novo a nuvem */
+  if(nuvemLogada() && !(D.nuvem.quem && D.nuvem.quem.vendedor)){
+    setTimeout(()=>{ nuvemFetch('/rest/v1/rpc/quem_sou', {}).then(q=>{
+      if(q && q.vendedor){ D.nuvem.quem = q; gravar(true); if(ajustarRepDaNuvem()) render(); }
+    }).catch(()=>{}); }, 900);
+  }
   if(nuvemLogada() && !CAT.length) setTimeout(()=>ACOES.catalogoBaixar(true), 400);
   try{
     window.addEventListener('online', ()=>agendarSync(500));
@@ -4495,6 +4579,7 @@ function dadosFicha(c){
   par('Inscrição estadual', c.ie);
   par('Regime tributário', c.regime);
   par('Canal', CANAL_NOME[c.canal]);
+  par('Tipo de negócio', c.segmento);
   par('Código do representante', c.cod);
   par('Código na indústria', c.codIndustria);
   par('Endereço de entrega', c.endereco);
@@ -4779,7 +4864,7 @@ function pdfDoPedido(ped, paraCliente){
     ['CNPJ', cnpjBonito(cli.cnpj)],
     ['Inscrição estadual', cli.ie],
     ['Regime', cli.regime],
-    ['Canal', CANAL_NOME[cli.canal]],
+    ['Canal', CANAL_NOME[cli.canal] + (cli.segmento?' - '+cli.segmento:'')],
     ['Entrega', [cli.endereco, cli.bairro, cli.cidade, cli.cep?'CEP '+cepBonito(cli.cep):''].filter(Boolean).join(' - ')],
     ['Referência', cli.referencia],
     ['Contato', [cli.contato, cli.whats?telBonito(cli.whats):'',
@@ -5920,6 +6005,7 @@ function emailHtml(ped, paraCliente){
   if(cli.regime)    campos.push(['Regime tributário', cli.regime]);
   if(cli.cod || cli.codIndustria) campos.push(['Código', [cli.cod, cli.codIndustria?'indústria '+cli.codIndustria:''].filter(Boolean).join(' — ')]);
   campos.push(['Canal', CANAL_NOME[cli.canal] || '—']);
+  if(cli.segmento)   campos.push(['Tipo de negócio', cli.segmento]);
   if(cli.agendamento) campos.push(['Descarga / agendamento', cli.agendamento]);
   if(cli.endereco)   campos.push(['Endereço de entrega', cli.endereco]);
   if(cli.bairro || cli.cidade)
