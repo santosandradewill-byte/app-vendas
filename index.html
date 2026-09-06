@@ -79,7 +79,7 @@ details.cartao:not([open]) > *:not(summary){display:none}
 }
 #abas button{
   flex:1;height:var(--abas);display:flex;flex-direction:column;align-items:center;
-  justify-content:center;gap:3px;color:var(--cinza);font-size:calc(10.5px * var(--esc));font-weight:600;
+  justify-content:center;gap:3px;color:var(--cinza);font-size:calc(10px * var(--esc));font-weight:600;
   letter-spacing:.1px;position:relative;
 }
 #abas button svg{width:23px;height:23px;stroke-width:1.9}
@@ -595,6 +595,7 @@ const MES_NOME = ['janeiro','fevereiro','março','abril','maio','junho','julho',
 const IC = {
  pedido:'<path d="M8 4H6a2 2 0 00-2 2v13a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2h-2"/><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M8 11h8M8 15h5"/>',
  clientes:'<path d="M16 20v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 20v-2a4 4 0 00-3-3.87M16 3.13A4 4 0 0119 7a4 4 0 01-3 3.87"/>',
+ calc:'<rect x="5" y="2" width="14" height="20" rx="2"/><path d="M8 6h8v4H8z"/><path d="M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01M16 18h.01"/>',
  painel:'<path d="M3 3v18h18"/><rect x="7" y="12" width="3" height="6" rx="1"/><rect x="12.5" y="8" width="3" height="10" rx="1"/><rect x="18" y="5" width="3" height="13" rx="1"/>',
  historico:'<path d="M3 3v5h5"/><path d="M3.05 13A9 9 0 106 5.3L3 8"/><path d="M12 7v5l3 2"/>',
  ajustes:'<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09A1.65 1.65 0 008 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06A1.65 1.65 0 004.6 15a1.65 1.65 0 00-1.51-1H3a2 2 0 110-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06A1.65 1.65 0 009 4.6h.09A1.65 1.65 0 0010 3.09V3a2 2 0 114 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06A1.65 1.65 0 0019.4 9v.09a1.65 1.65 0 001.51 1H21a2 2 0 110 4h-.09a1.65 1.65 0 00-1.51 1z"/>',
@@ -866,6 +867,7 @@ const ABAS = [
   {id:'pedido',    rot:'Pedido',    ic:'pedido'},
   {id:'clientes',  rot:'Clientes',  ic:'clientes'},
   {id:'painel',    rot:'Painel',    ic:'painel'},
+  {id:'margem',    rot:'Margem',    ic:'calc'},
   {id:'historico', rot:'Histórico', ic:'historico'},
   {id:'ajustes',   rot:'Ajustes',   ic:'ajustes'}
 ];
@@ -1330,6 +1332,7 @@ function telaPedido(){
     '<div class="linha-bt" style="padding:0 12px 12px">'+
       '<button class="bt bt-l" data-a="histCliente" data-i="'+esc(cli.id)+'" style="min-height:40px">'+ico('historico')+'Histórico</button>'+
       '<button class="bt bt-l" data-a="repetirUltimo" data-i="'+esc(cli.id)+'" style="min-height:40px">'+ico('repetir')+'Repetir último</button>'+
+      '<button class="bt bt-l" data-a="abrirMargem" style="min-height:40px;flex:0 0 auto;padding:0 14px" aria-label="Simular margem">'+ico('calc')+'Margem</button>'+
     '</div></div>';
 
   /* o numero do pedido do cliente e a data de entrega ficam a vista, antes dos itens:
@@ -2924,8 +2927,7 @@ const VISTAS_PAINEL = [
   {id:'mes',      rot:'Mês'},
   {id:'clientes', rot:'Clientes'},
   {id:'produtos', rot:'Produtos'},
-  {id:'redes',    rot:'Redes'},
-  {id:'margem',   rot:'Margem'}
+  {id:'redes',    rot:'Redes'}
 ];
 
 /* =====================================================
@@ -2935,7 +2937,7 @@ const VISTAS_PAINEL = [
    margem  = lucro / venda        (sobre o preço de venda)
    markup  = lucro / custo        (sobre o custo)
    ===================================================== */
-const MG = { custo:10, margem:30, rotulo:'', opcoes:null, voltarPedido:false };
+const MG = { custo:10, margem:30, rotulo:'', opcoes:null, voltarPedido:false, modal:false, item:null };
 function mgCalc(){
   const c = Math.max(0, Number(MG.custo)||0);
   const m = Math.min(Math.max(Number(MG.margem)||0, -900), 99.99);
@@ -2981,11 +2983,23 @@ function painelMargem(){
     'Por isso 30% de margem são 42,86% de markup: o cliente compra a '+brl(r.custo)+', vende a '+brl(r.venda)+
     ' e fica com '+brl(r.lucro)+' por unidade. Mercado costuma falar em margem; padaria e lanchonete, em markup.</div>'+
     '</div></div>';
+  if(MG.modal) return h;
   if(MG.voltarPedido)
     h += '<button class="bt bt-p bt-bloco" style="margin-top:4px" data-a="mgVoltarPedido">'+ico('volta')+'Voltar ao pedido</button>';
   h += '<button class="bt bt-t bt-bloco mt10" data-a="mgLimpar">Limpar</button>';
   return h;
 }
+/* Janela por cima do pedido: ele faz a conta na frente do cliente e volta para onde estava */
+function abrirMargemModal(){
+  MG.modal = true;
+  modal('Margem do cliente', painelMargem(),
+    (MG.item!=null ? '<button class="bt bt-l bt-bloco" data-a="editarPreco" data-i="'+MG.item+'">'+ico('editar')+'Voltar ao preço do item</button>' : '')+
+    '<div class="linha-bt mt10"><button class="bt bt-t" data-a="mgLimpar">Limpar</button>'+
+    '<button class="bt bt-p" data-a="fechaModal">'+ico('check')+'Voltar ao pedido</button></div>',
+    ()=>{ MG.modal = false; });
+  setTimeout(()=>{ const n=el('mg_custo'); if(n && !MG.opcoes){ n.focus(); n.select(); } }, 150);
+}
+ACOES.abrirMargem = () => { MG.item = null; MG.rotulo=''; MG.opcoes=null; abrirMargemModal(); };
 function mgPintar(exceto){
   const r = mgCalc();
   ['custo','margem','markup','venda','lucro'].forEach(k=>{
@@ -3007,7 +3021,11 @@ ENTRADAS.mg = (v, campo) => {
 };
 ACOES.mgMargem = v => { MG.margem = Number(v)||0; mgPintar(null); };
 ACOES.mgCusto  = v => { MG.custo  = Number(v)||0; mgPintar(null); };
-ACOES.mgLimpar = () => { MG.custo = 0; MG.margem = 30; MG.rotulo=''; MG.opcoes=null; MG.voltarPedido=false; render(); setTimeout(()=>{ const n=el('mg_custo'); if(n){ n.focus(); n.select(); } },120); };
+ACOES.mgLimpar = () => {
+  MG.custo = 0; MG.margem = 30; MG.rotulo=''; MG.opcoes=null; MG.voltarPedido=false; MG.item=null;
+  if(MG.modal){ abrirMargemModal(); return; }
+  render(); setTimeout(()=>{ const n=el('mg_custo'); if(n){ n.focus(); n.select(); } },120);
+};
 ACOES.mgVoltarPedido = () => { MG.voltarPedido = false; irPara('pedido'); };
 /* Do preço do item no pedido: o custo do cliente é o que ele paga a você */
 ACOES.simularMargem = i => {
@@ -3020,9 +3038,8 @@ ACOES.simularMargem = i => {
   MG.opcoes = [{rot:'Caixa', v:Math.round(cx*100)/100}];
   if(pc) MG.opcoes.push({rot:'Pacote', v:Math.round(pc*100)/100});
   if(un && p.unPorPacote>1) MG.opcoes.push({rot:'Unidade', v:Math.round(un*100)/100});
-  MG.custo = pc || cx; MG.rotulo = it.nome + ' — cód. ' + it.cod; MG.voltarPedido = true;
-  vistaPainel = 'margem'; fechaModal();
-  ABA='painel'; VISTA=null; localStorage.setItem(K_ABA,'painel'); window.scrollTo(0,0); render();
+  MG.custo = pc || cx; MG.rotulo = it.nome + ' — cód. ' + it.cod; MG.voltarPedido = false; MG.item = +i;
+  abrirMargemModal();
 };
 
 function telaPainel(){
@@ -3045,10 +3062,6 @@ function telaPainel(){
     '<button class="chip '+(vistaPainel===v.id?'on':'')+'" data-a="setVistaPainel" data-i="'+v.id+'">'+
     v.rot+'</button>').join('') +'</div>';
 
-  if(vistaPainel==='margem'){
-    /* simulador nao depende do periodo: mostra so a fila de abas do painel */
-    return topo.slice(topo.lastIndexOf('<div class="chips">')) + painelMargem();
-  }
   if(vistaPainel==='clientes') return topo + painelClientes();
   if(vistaPainel==='produtos') return topo + painelProdutos();
   if(vistaPainel==='redes')    return topo + painelRedes();
@@ -6344,6 +6357,7 @@ function tituloTela(){
               volta: !!(ped && ped.clienteId)};
     case 'clientes':  return {tit:'Clientes', sub:D.clientes.length+' na carteira'};
     case 'painel':    return {tit:'Painel',   sub:perRot(PER)};
+    case 'margem':    return {tit:'Margem',   sub:'Simulador para negociar'};
     case 'historico': return {tit:'Histórico',sub:D.pedidos.length+' pedido'+(D.pedidos.length===1?'':'s')};
     default:          return {tit:'Ajustes',  sub:'Configuração do app'};
   }
@@ -6361,6 +6375,7 @@ function corpoTela(){
     case 'pedido':    return telaPedido();
     case 'clientes':  return telaClientes();
     case 'painel':    return telaPainel();
+    case 'margem':    MG.modal=false; return painelMargem();
     case 'historico': return telaHistorico();
     default:          return telaAjustes();
   }
