@@ -1591,7 +1591,8 @@ ACOES.editarPreco = i => {
       '<button class="chip" data-a="porPreco" data-v="'+(Math.round(tab*1.15*100)/100)+'">+15%</button>'+
     '</div>'+
     '<div class="peq" style="margin-top:8px">Vale só neste pedido. A tabela oficial não muda, '+
-    'e você volta para ela com um toque.</div>',
+    'e você volta para ela com um toque.</div>'+
+    '<button class="bt bt-l bt-bloco mt10" data-a="simularMargem" data-i="'+i+'">'+ico('painel')+'Simular a margem do cliente com este preço</button>',
     '<button class="bt bt-p bt-bloco" data-a="salvarPreco" data-i="'+i+'">'+ico('check')+'Usar este preço</button>');
   setTimeout(()=>{ const n=el('np'); if(n){ n.focus(); n.select(); } }, 120);
 };
@@ -2923,8 +2924,106 @@ const VISTAS_PAINEL = [
   {id:'mes',      rot:'Mês'},
   {id:'clientes', rot:'Clientes'},
   {id:'produtos', rot:'Produtos'},
-  {id:'redes',    rot:'Redes'}
+  {id:'redes',    rot:'Redes'},
+  {id:'margem',   rot:'Margem'}
 ];
+
+/* =====================================================
+   SIMULADOR DE MARGEM — para a negociação na hora
+   Custo (o que o cliente paga), margem, markup, preço de venda e
+   lucro. Mexeu num, os outros seguem. A conta âncora é custo + margem:
+   margem  = lucro / venda        (sobre o preço de venda)
+   markup  = lucro / custo        (sobre o custo)
+   ===================================================== */
+const MG = { custo:10, margem:30, rotulo:'', opcoes:null, voltarPedido:false };
+function mgCalc(){
+  const c = Math.max(0, Number(MG.custo)||0);
+  const m = Math.min(Math.max(Number(MG.margem)||0, -900), 99.99);
+  const venda = c/(1-m/100);
+  return { custo:c, margem:m, markup: m/(100-m)*100, venda:venda, lucro:venda-c };
+}
+function mgFmt(campo, r){
+  if(campo==='custo' || campo==='venda' || campo==='lucro') return vlr(r[campo]);
+  return nm(r[campo], 2);
+}
+function painelMargem(){
+  const r = mgCalc();
+  const linha = (id, rot, un, cor) =>
+    '<div style="display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--linha)">'+
+      (cor?'<i style="width:4px;align-self:stretch;border-radius:2px;background:'+cor+'"></i>':'<i style="width:4px"></i>')+
+      '<label for="mg_'+id+'" style="flex:1;font-size:calc(14px * var(--esc));color:var(--grafite2);font-weight:600">'+rot+'</label>'+
+      '<input type="text" inputmode="decimal" id="mg_'+id+'" data-in="mg" data-i="'+id+'" value="'+mgFmt(id,r)+'" '+
+        'style="width:128px;text-align:right;font-size:calc(21px * var(--esc));font-weight:750;font-variant-numeric:tabular-nums;padding:6px 8px">'+
+      '<span style="width:26px;font-size:calc(12px * var(--esc));color:var(--cinza);font-weight:600">'+un+'</span>'+
+    '</div>';
+  let h = '<div class="cartao"><div class="corpo">'+
+    '<div class="peq" style="margin-bottom:6px">Quanto o cliente ganha vendendo o seu produto. '+
+    'Mexa em qualquer campo: os outros acompanham.'+
+    (MG.rotulo?'<br><b>'+esc(MG.rotulo)+'</b>':'')+'</div>'+
+    linha('custo',  'Custo (o que ele paga)', 'R$', '')+
+    linha('margem', 'Margem de lucro',        '%',  'var(--dourado)')+
+    linha('markup', 'Markup',                 '%',  'var(--verde)')+
+    linha('venda',  'Preço de venda',        'R$', 'var(--verde)')+
+    linha('lucro',  'Lucro',                  'R$', 'var(--verde)')+
+    '<div class="chips" style="padding:12px 0 0">'+
+      [15,20,25,30,35,40,50].map(v=>'<button class="chip '+(Math.abs(r.margem-v)<0.005?'on':'')+'" data-a="mgMargem" data-i="'+v+'">'+v+'%</button>').join('')+
+    '</div>'+
+  '</div></div>';
+  if(MG.opcoes && MG.opcoes.length){
+    h += '<div class="secao">Custo pelo seu preço</div><div class="cartao"><div class="corpo">'+
+      '<div class="peq" style="margin-bottom:8px">Toque para usar como custo o que o cliente paga por caixa, pacote ou unidade.</div>'+
+      '<div class="chips chips-quebra" style="padding-bottom:0">'+
+      MG.opcoes.map(o=>'<button class="chip '+(Math.abs(r.custo-o.v)<0.005?'on':'')+'" data-a="mgCusto" data-i="'+o.v+'">'+esc(o.rot)+' '+brl(o.v)+'</button>').join('')+
+      '</div></div></div>';
+  }
+  h += '<div class="cartao"><div class="corpo">'+
+    '<div class="peq"><b>Margem</b> é sobre o preço de venda; <b>markup</b> é sobre o custo. '+
+    'Por isso 30% de margem são 42,86% de markup: o cliente compra a '+brl(r.custo)+', vende a '+brl(r.venda)+
+    ' e fica com '+brl(r.lucro)+' por unidade. Mercado costuma falar em margem; padaria e lanchonete, em markup.</div>'+
+    '</div></div>';
+  if(MG.voltarPedido)
+    h += '<button class="bt bt-p bt-bloco" style="margin-top:4px" data-a="mgVoltarPedido">'+ico('volta')+'Voltar ao pedido</button>';
+  h += '<button class="bt bt-t bt-bloco mt10" data-a="mgLimpar">Limpar</button>';
+  return h;
+}
+function mgPintar(exceto){
+  const r = mgCalc();
+  ['custo','margem','markup','venda','lucro'].forEach(k=>{
+    if(k===exceto) return;
+    const n = el('mg_'+k); if(n) n.value = mgFmt(k, r);
+  });
+  document.querySelectorAll('[data-a="mgMargem"]').forEach(b=>b.classList.toggle('on', Math.abs(r.margem-Number(b.dataset.i))<0.005));
+  document.querySelectorAll('[data-a="mgCusto"]').forEach(b=>b.classList.toggle('on', Math.abs(r.custo-Number(b.dataset.i))<0.005));
+}
+ENTRADAS.mg = (v, campo) => {
+  const x = pnum(v);
+  const c = Math.max(0, Number(MG.custo)||0);
+  if(campo==='custo')       MG.custo = x;
+  else if(campo==='margem') MG.margem = Math.min(x, 99.99);
+  else if(campo==='markup') MG.margem = x/(100+x)*100;
+  else if(campo==='venda')  { if(x>0) MG.margem = (x-c)/x*100; }
+  else if(campo==='lucro')  { if(c+x>0) MG.margem = x/(c+x)*100; }
+  mgPintar(campo);
+};
+ACOES.mgMargem = v => { MG.margem = Number(v)||0; mgPintar(null); };
+ACOES.mgCusto  = v => { MG.custo  = Number(v)||0; mgPintar(null); };
+ACOES.mgLimpar = () => { MG.custo = 0; MG.margem = 30; MG.rotulo=''; MG.opcoes=null; MG.voltarPedido=false; render(); setTimeout(()=>{ const n=el('mg_custo'); if(n){ n.focus(); n.select(); } },120); };
+ACOES.mgVoltarPedido = () => { MG.voltarPedido = false; irPara('pedido'); };
+/* Do preço do item no pedido: o custo do cliente é o que ele paga a você */
+ACOES.simularMargem = i => {
+  const ped = pedidoRascunho(); const it = ped ? ped.itens[+i] : null; if(!it) return;
+  const p = porId[it.skuId] || {};
+  const np = el('np'); const precoCx = np ? pnum(np.value) : it.preco;
+  const cx = it.un==='CX' ? precoCx : (precoDe(p,'CX')||0);
+  const pc = p.pacotesPorCaixa ? cx/p.pacotesPorCaixa : 0;
+  const un = (pc && p.unPorPacote) ? pc/p.unPorPacote : 0;
+  MG.opcoes = [{rot:'Caixa', v:Math.round(cx*100)/100}];
+  if(pc) MG.opcoes.push({rot:'Pacote', v:Math.round(pc*100)/100});
+  if(un && p.unPorPacote>1) MG.opcoes.push({rot:'Unidade', v:Math.round(un*100)/100});
+  MG.custo = pc || cx; MG.rotulo = it.nome + ' — cód. ' + it.cod; MG.voltarPedido = true;
+  vistaPainel = 'margem'; fechaModal();
+  ABA='painel'; VISTA=null; localStorage.setItem(K_ABA,'painel'); window.scrollTo(0,0); render();
+};
 
 function telaPainel(){
   const mes = PER.tipo==='mes';
@@ -2946,6 +3045,10 @@ function telaPainel(){
     '<button class="chip '+(vistaPainel===v.id?'on':'')+'" data-a="setVistaPainel" data-i="'+v.id+'">'+
     v.rot+'</button>').join('') +'</div>';
 
+  if(vistaPainel==='margem'){
+    /* simulador nao depende do periodo: mostra so a fila de abas do painel */
+    return topo.slice(topo.lastIndexOf('<div class="chips">')) + painelMargem();
+  }
   if(vistaPainel==='clientes') return topo + painelClientes();
   if(vistaPainel==='produtos') return topo + painelProdutos();
   if(vistaPainel==='redes')    return topo + painelRedes();
