@@ -4087,6 +4087,12 @@ ACOES.nuvemLogar = async () => {
     else agendarSync(300);
   }catch(e){
     const m = String(e.message||'');
+    if(/api ?key/i.test(m) && precisaEntrar()){
+      /* ainda no portao: a chave colada nao serve; reabre o campo com ela dentro para conferir */
+      PORTAO_TROCAR_CHAVE = true; render();
+      aviso('A chave da nuvem está errada. Confira a chave que o Willian mandou e cole de novo.');
+      return;
+    }
     aviso(/api ?key/i.test(m) ? 'A chave da nuvem está errada. Confira em Ajustes › Nuvem.'
         : /invalid|credentials/i.test(m) ? 'E-mail ou senha errados.'
         : /failed to fetch|network/i.test(m) ? 'Sem internet agora. Tente de novo com sinal.'
@@ -6260,20 +6266,33 @@ function corpoTela(){
 let vistaAnterior = null;
 /* Porta de entrada: com a nuvem configurada, ninguem usa o app sem entrar.
    Depois de entrar, o aparelho lembra e funciona sem sinal. */
+/* chave publica do projeto: comeca com sb_publishable_ (ou a antiga, que comeca com eyJ) */
+function chaveParece(k){ k=String(k||'').trim(); return /^sb_publishable_[A-Za-z0-9_\-]{10,}$/.test(k) || /^eyJ[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+$/.test(k); }
+let PORTAO_TROCAR_CHAVE = false;
 function telaPortao(){
-  const semChave = !nuvemPronta();
+  const semChave = !nuvemPronta() || PORTAO_TROCAR_CHAVE;
   return '<div class="cartao" style="margin-top:18px"><div class="corpo">'+
     '<div style="font-size:calc(19px * var(--esc));font-weight:800;letter-spacing:-.3px;margin-bottom:4px">Entrar</div>'+
     '<div class="peq" style="margin-bottom:14px">Use o e-mail e a senha que o Willian cadastrou. Uma vez só neste aparelho.</div>'+
-    (semChave ? '<div class="campo"><label>Chave da nuvem (sb_publishable_...)</label><input type="text" id="pt_chave" autocapitalize="off" autocomplete="off" placeholder="cole aqui uma vez"></div>' : '')+
+    (semChave ? '<div class="campo"><label>Chave da nuvem (sb_publishable_...)</label>'+
+        '<input type="text" id="pt_chave" autocapitalize="off" autocomplete="off" spellcheck="false" placeholder="cole aqui uma vez" value="'+esc(PORTAO_TROCAR_CHAVE?(D.cfg.nuvem.chave||''):'')+'">'+
+        '<div class="dica">É a chave que o Willian mandou. Cole inteira, sem espaço antes ou depois.</div></div>' : '')+
     '<div class="campo"><label>E-mail</label><input type="email" inputmode="email" autocapitalize="off" id="nv_email" value="'+esc((SESSAO&&SESSAO.email)||'')+'"></div>'+
     '<div class="campo"><label>Senha</label><input type="password" id="nv_senha"></div>'+
     '<button class="bt bt-p bt-bloco bt-alto" data-a="portaoEntrar">Entrar</button>'+
+    (semChave ? '' : '<button class="bt bt-t bt-bloco mt10" data-a="portaoTrocarChave">A chave da nuvem está errada? Trocar</button>')+
     '</div></div>'+
     '<div class="peq ct" style="margin-top:14px">'+esc(nomeMarca())+' · app de pedidos</div>';
 }
+ACOES.portaoTrocarChave = () => { PORTAO_TROCAR_CHAVE = true; render(); setTimeout(()=>{ const n=el('pt_chave'); if(n){ n.focus(); n.select(); } }, 120); };
 ACOES.portaoEntrar = async () => {
-  const k = el('pt_chave'); if(k && k.value.trim()){ D.cfg.nuvem.chave = k.value.trim(); gravar(true); }
+  const k = el('pt_chave');
+  if(k){
+    const v = k.value.replace(/\s+/g,'');   /* tira espaco, quebra de linha, o que veio junto no colar */
+    if(!v){ aviso('Cole a chave da nuvem.'); k.focus(); return; }
+    if(!chaveParece(v)){ aviso('Isso não parece a chave. Ela começa com sb_publishable_ — peça ao Willian para mandar de novo.'); k.focus(); return; }
+    D.cfg.nuvem.chave = v; gravar(true); PORTAO_TROCAR_CHAVE = false;
+  }
   if(!nuvemPronta()){ aviso('Cole a chave da nuvem.'); return; }
   await ACOES.nuvemLogar();
 };
