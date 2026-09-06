@@ -798,6 +798,7 @@ function novoPedido(clienteId){
     clienteId: clienteId||null,
     numCliente:'',              /* nº do pedido/OC no sistema do cliente */
     dataEntrega:'',             /* quando o cliente quer receber */
+    etapa:'dados',              /* 'dados' (nº, entrega, pagamento, obs) -> 'itens' -> revisar */
     data: hoje(),
     status:'Rascunho',
     itens:[], desc:0,
@@ -891,7 +892,14 @@ document.addEventListener('click', e=>{
 ACOES.fechaModal = fechaModal;
 ACOES.aba    = a => irPara(a);
 ACOES.voltar = () => {
-  if(!VISTA && ABA==='pedido'){ const ped = pedidoRascunho(); if(ped && ped.clienteId){ ACOES.sairDoPedido('pedido'); return; } }
+  if(!VISTA && ABA==='pedido'){
+    const ped = pedidoRascunho();
+    if(ped && ped.clienteId){
+      /* dos itens a seta volta para os dados (etapa 1); dos dados, sai do pedido */
+      if(etapaDe(ped)==='itens'){ ped.etapa='dados'; gravar(); window.scrollTo(0,0); render(); return; }
+      ACOES.sairDoPedido('pedido'); return;
+    }
+  }
   VISTA=null; window.scrollTo(0,0); render();
 };
 ACOES.nada   = () => {};
@@ -1320,24 +1328,16 @@ function telaPedido(){
      em vez de quebrar a tela (TAREFA 3, bug achado no teste) */
   if(!cli){ ped.clienteId = null; gravar(); return seletorCliente(); }
 
-  let h = '<div class="cartao" style="margin-bottom:10px">'+
-    '<button class="lin" data-a="trocarCliente">'+
-      '<span class="ini">'+esc(iniciais(cli.fantasia||cli.razao))+'</span>'+
-      '<span class="info"><span class="nm">'+esc(cli.fantasia||cli.razao)+'</span>'+
-      '<span class="sub"><span class="et '+(cli.canal==='VAREJO'?'et-vrj':'et-fs')+'">'+CANAL_NOME[cli.canal]+'</span>'+
-      '<span>Pedido '+esc(ped.num)+'</span><span>'+dbr(ped.data)+'</span>'+
-      (cli.cod?'<span>'+esc(cli.cod)+'</span>':'')+'</span></span>'+
-      '<span class="seta">'+ico('seta')+'</span>'+
-    '</button>'+
-    '<div class="linha-bt" style="padding:0 12px 12px">'+
-      '<button class="bt bt-l" data-a="histCliente" data-i="'+esc(cli.id)+'" style="min-height:40px">'+ico('historico')+'Histórico</button>'+
-      '<button class="bt bt-l" data-a="repetirUltimo" data-i="'+esc(cli.id)+'" style="min-height:40px">'+ico('repetir')+'Repetir último</button>'+
-      '<button class="bt bt-l" data-a="abrirMargem" style="min-height:40px;flex:0 0 auto;padding:0 14px" aria-label="Simular margem">'+ico('calc')+'Margem</button>'+
-    '</div></div>';
+  /* etapa 1 (dados) vem antes dos itens; a tela dos itens fica so com os itens */
+  if(etapaDe(ped)==='dados') return telaDadosPedido(ped, cli);
 
-  /* o numero do pedido do cliente e a data de entrega ficam a vista, antes dos itens:
-     e o que a industria usa na NF e o que o comprador combina na hora */
-  h += '<div class="cartao" style="margin-bottom:10px"><div class="corpo" style="padding:12px 14px">'+blocoDadosPedido(ped)+'</div></div>';
+  let h = cartaoClientePedido(ped, cli);
+  /* resumo da etapa 1 com atalho para voltar la */
+  const resumo = [ped.numCliente?'OC '+ped.numCliente:'', ped.dataEntrega?'entrega '+dbr(ped.dataEntrega):'', ped.cond||''].filter(Boolean).join(' · ');
+  h += '<div class="cartao" style="margin-bottom:10px"><div class="corpo" style="padding:8px 8px 8px 14px;display:flex;align-items:center;gap:10px">'+
+    '<div class="peq" style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+
+      (resumo?esc(resumo):'Sem nº do cliente nem data de entrega')+'</div>'+
+    '<button class="bt bt-l" data-a="etapaDados" style="min-height:36px;padding:0 12px;flex:0 0 auto">'+ico('editar')+'Dados</button></div></div>';
 
   h += '<div class="busca" style="margin-bottom:9px">'+ico('busca')+
     '<input type="text" placeholder="Buscar produto ou código" value="'+esc(bq)+'" data-in="bq" '+
@@ -1351,8 +1351,7 @@ function telaPedido(){
   h += '<div class="cartao" id="itens">'+blocoItens(ped)+'</div>';
 
   if(ped.itens.length){
-    h += '<div class="secao">Fechamento</div>';
-    h += '<div class="cartao" id="fecha">'+blocoFechamento(ped)+'</div>';
+    /* desconto, pagamento e observacoes ficam na etapa 3 (conferencia): aqui, so os itens */
     h += '<div class="linha-bt" style="margin-bottom:10px">'+
       '<button class="bt bt-l" data-a="descartar">'+ico('lixo')+'Descartar</button>'+
       '<button class="bt bt-l" data-a="guardarPedido">'+ico('salvar')+'Guardar</button></div>';
@@ -1361,6 +1360,46 @@ function telaPedido(){
     CONDS_PAGTO.map(c=>'<option value="'+c+'">').join('')+'</datalist>';
   return h;
 }
+
+function etapaDe(ped){ return ped.etapa || (ped.itens.length ? 'itens' : 'dados'); }
+function cartaoClientePedido(ped, cli){
+  return '<div class="cartao" style="margin-bottom:10px">'+
+    '<button class="lin" data-a="trocarCliente">'+
+      '<span class="ini">'+esc(iniciais(cli.fantasia||cli.razao))+'</span>'+
+      '<span class="info"><span class="nm">'+esc(cli.fantasia||cli.razao)+'</span>'+
+      '<span class="sub"><span class="et '+(cli.canal==='VAREJO'?'et-vrj':'et-fs')+'">'+CANAL_NOME[cli.canal]+'</span>'+
+      '<span>Pedido '+esc(ped.num)+'</span><span>'+dbr(ped.data)+'</span>'+
+      (cli.cod?'<span>'+esc(cli.cod)+'</span>':'')+'</span></span>'+
+      '<span class="seta">'+ico('seta')+'</span>'+
+    '</button>'+
+    '<div class="linha-bt" style="padding:0 12px 12px">'+
+      '<button class="bt bt-l" data-a="histCliente" data-i="'+esc(cli.id)+'" style="min-height:40px">'+ico('historico')+'Histórico</button>'+
+      '<button class="bt bt-l" data-a="repetirUltimo" data-i="'+esc(cli.id)+'" style="min-height:40px">'+ico('repetir')+'Repetir último</button>'+
+      '<button class="bt bt-l" data-a="abrirMargem" style="min-height:40px;flex:0 0 auto;padding:0 14px" aria-label="Simular margem">'+ico('calc')+'Margem</button>'+
+    '</div></div>';
+}
+/* Etapa 1: o que o comprador combina na hora e a industria usa na nota. So isso na tela. */
+function telaDadosPedido(ped, cli){
+  let h = cartaoClientePedido(ped, cli);
+  h += '<div class="secao">Dados do pedido</div><div class="cartao"><div class="corpo">'+
+    '<div class="campo"><label>Nº do pedido no cliente</label>'+
+      '<input type="text" value="'+esc(ped.numCliente||'')+'" data-in="numCli" placeholder="OC / nº do comprador (usar na NF)"></div>'+
+    '<div class="dupla">'+
+      '<div class="campo"><label>Entrega combinada</label><input type="date" value="'+esc(ped.dataEntrega||'')+'" data-in="dataEnt" min="'+hoje()+'"></div>'+
+      '<div class="campo"><label>Pagamento</label><input type="text" value="'+esc(ped.cond||'')+'" list="conds" placeholder="28 dias" data-in="cond"></div>'+
+    '</div>'+
+    '<div class="campo mb0"><label>Observações do pedido</label>'+
+      '<textarea placeholder="Entrega, horário de recebimento, bonificação..." data-in="obs">'+esc(ped.obs||'')+'</textarea></div>'+
+    '<div class="dica" style="margin-top:8px">O número do cliente é o que a indústria usa na nota; o seu ('+esc(ped.num)+') é controle interno. '+
+      (cli.agendamento?'<b>Descarga:</b> '+esc(cli.agendamento):'Entrega em branco = o quanto antes.')+'</div>'+
+  '</div></div>';
+  h += '<button class="bt bt-p bt-bloco bt-alto" data-a="etapaItens">CONTINUAR PARA OS ITENS '+ico('seta')+'</button>'+
+    '<div class="peq" style="margin:7px 3px 12px">Etapa 1 de 3. Pode deixar em branco e voltar depois pelo botão "Dados" na tela dos itens.</div>';
+  h += '<datalist id="conds">'+CONDS_PAGTO.map(c=>'<option value="'+c+'">').join('')+'</datalist>';
+  return h;
+}
+ACOES.etapaItens = () => { const ped=pedidoRascunho(); if(!ped) return; ped.etapa='itens'; gravar(); window.scrollTo(0,0); render(); };
+ACOES.etapaDados = () => { const ped=pedidoRascunho(); if(!ped) return; ped.etapa='dados'; gravar(); window.scrollTo(0,0); render(); };
 
 function pintaResultados(){
   const ped = pedidoRascunho(); if(!ped) return;
@@ -1387,7 +1426,7 @@ function pintaSomas(){
 function pintaRodape(){
   const r = el('rodape'), m = document.querySelector('main');
   const ped = pedidoRascunho();
-  if(ABA!=='pedido' || VISTA || !ped || !ped.itens.length){
+  if(ABA!=='pedido' || VISTA || !ped || !ped.itens.length || etapaDe(ped)==='dados'){
     r.classList.remove('on'); if(m) m.classList.remove('com-rodape'); return;
   }
   const t = totais(ped);
@@ -1412,6 +1451,7 @@ ACOES.escolherCliente = id => {
   let ped = pedidoRascunho();
   if(!ped) ped = novoPedido(id);
   else { ped.clienteId = id; const c=clientePorId(id); if(c&&c.cond) ped.cond=c.cond; }
+  ped.etapa = 'dados';   /* etapa 1: dados do pedido, antes dos itens */
   fCanal = null; fCat = null; bq=''; bqCli='';
   gravar(); render();
 };
@@ -1573,6 +1613,12 @@ ENTRADAS.desc = v => {
 ENTRADAS.numCli  = v => { const ped=pedidoRascunho(); if(ped){ ped.numCliente=v; gravar(); } };
 ENTRADAS.dataEnt = v => { const ped=pedidoRascunho(); if(ped){ ped.dataEntrega=v; gravar(); } };
 ENTRADAS.cond = v => { const ped=pedidoRascunho(); if(ped){ ped.cond=v; gravar(); } };
+/* na conferencia, mudar o desconto refaz o cartao dos itens (totais) sem tirar o foco do campo */
+document.addEventListener('input', e=>{
+  if(!(VISTA && VISTA.t==='revisar')) return;
+  const t = e.target.closest('[data-in="desc"]'); if(!t) return;
+  const ped = pedidoRascunho(); const c = el('rev-itens'); if(ped && c) c.innerHTML = cartaoItensPedido(ped);
+});
 ENTRADAS.obs  = v => { const ped=pedidoRascunho(); if(ped){ ped.obs=v;  gravar(); } };
 
 ACOES.editarPreco = i => {
@@ -1881,9 +1927,12 @@ function telaRevisar(){
   const cli = clienteDe(ped) || {};
   const rasc = ped.status==='Rascunho';
 
-  let h = cartaoCabecalhoPedido(ped, cli) + cartaoItensPedido(ped) + cartaoDocumento(ped);
+  let h = cartaoCabecalhoPedido(ped, cli) + '<div id="rev-itens">'+cartaoItensPedido(ped)+'</div>' + cartaoDocumento(ped);
 
   if(rasc){
+    /* etapa 3: desconto, pagamento e observacoes entram aqui, na conferencia */
+    h += '<div class="secao">Fechamento</div><div class="cartao" id="fecha">'+blocoFechamento(ped)+'</div>'+
+      '<datalist id="conds">'+CONDS_PAGTO.map(c=>'<option value="'+c+'">').join('')+'</datalist>';
     h += '<div class="secao">E agora?</div>';
     h += '<div class="peq" style="margin:-2px 0 10px;padding:0 3px">Confira acima antes de decidir. '+
       'Nada sai daqui sozinho — fechar o pedido só o marca como vendido e leva você para a tela '+
@@ -2937,36 +2986,56 @@ const VISTAS_PAINEL = [
    margem  = lucro / venda        (sobre o preço de venda)
    markup  = lucro / custo        (sobre o custo)
    ===================================================== */
-const MG = { custo:10, margem:30, rotulo:'', opcoes:null, voltarPedido:false, modal:false, item:null };
+const MG = { modo:'custo', custo:10, venda:14.29, margem:30, rotulo:'', opcoes:null, voltarPedido:false, modal:false, item:null, busca:'' };
+/* dois caminhos: 'custo' (custo + margem -> preço de venda) ou 'venda' (preço de venda + margem -> custo) */
 function mgCalc(){
-  const c = Math.max(0, Number(MG.custo)||0);
   const m = Math.min(Math.max(Number(MG.margem)||0, -900), 99.99);
-  const venda = c/(1-m/100);
-  return { custo:c, margem:m, markup: m/(100-m)*100, venda:venda, lucro:venda-c };
+  let c, v;
+  if(MG.modo==='venda'){ v = Math.max(0, Number(MG.venda)||0); c = v*(1-m/100); }
+  else { c = Math.max(0, Number(MG.custo)||0); v = c/(1-m/100); }
+  return { custo:c, margem:m, markup: m/(100-m)*100, venda:v, lucro:v-c };
 }
 function mgFmt(campo, r){
   if(campo==='custo' || campo==='venda' || campo==='lucro') return vlr(r[campo]);
   return nm(r[campo], 2);
 }
+function mgRefazer(){ if(MG.modal) abrirMargemModal(); else render(); }
+function mgListaHTML(){
+  const q = sac(MG.busca).trim(); if(!q || !CAT.length) return '';
+  const lista = CAT.filter(p=>(p.busca||sac(p.nome+' '+p.cod)).indexOf(q)>-1).slice(0,6);
+  if(!lista.length) return '<div class="peq" style="padding:6px 2px">Nada encontrado.</div>';
+  return lista.map(p=>'<button class="lin" data-a="mgProduto" data-i="'+esc(p.id)+'" style="padding:9px 4px">'+
+    '<span class="info"><span class="nm">'+esc(p.nome)+'</span><span class="sub"><span class="et et-cod">'+esc(p.cod)+'</span>'+
+    '<span class="et '+(p.canal==='VAREJO'?'et-vrj':'et-fs')+'">'+CANAL_NOME[p.canal]+'</span></span></span>'+
+    '<span class="dir"><span class="val">'+brl(p.pCaixa)+'</span></span></button>').join('');
+}
 function painelMargem(){
-  const r = mgCalc();
+  const r = mgCalc(); const pv = MG.modo==='venda';
+  /* ao tocar, o campo ja seleciona o numero: e so digitar por cima */
   const linha = (id, rot, un, cor) =>
     '<div style="display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--linha)">'+
-      (cor?'<i style="width:4px;align-self:stretch;border-radius:2px;background:'+cor+'"></i>':'<i style="width:4px"></i>')+
+      '<i style="width:4px;align-self:stretch;border-radius:2px;background:'+(cor||'transparent')+'"></i>'+
       '<label for="mg_'+id+'" style="flex:1;font-size:calc(14px * var(--esc));color:var(--grafite2);font-weight:600">'+rot+'</label>'+
       '<input type="text" inputmode="decimal" id="mg_'+id+'" data-in="mg" data-i="'+id+'" value="'+mgFmt(id,r)+'" '+
+        'onfocus="this.select()" onclick="this.select()" '+
         'style="width:128px;text-align:right;font-size:calc(21px * var(--esc));font-weight:750;font-variant-numeric:tabular-nums;padding:6px 8px">'+
       '<span style="width:26px;font-size:calc(12px * var(--esc));color:var(--cinza);font-weight:600">'+un+'</span>'+
     '</div>';
-  let h = '<div class="cartao"><div class="corpo">'+
-    '<div class="peq" style="margin-bottom:6px">Quanto o cliente ganha vendendo o seu produto. '+
-    'Mexa em qualquer campo: os outros acompanham.'+
-    (MG.rotulo?'<br><b>'+esc(MG.rotulo)+'</b>':'')+'</div>'+
-    linha('custo',  'Custo (o que ele paga)', 'R$', '')+
-    linha('margem', 'Margem de lucro',        '%',  'var(--dourado)')+
-    linha('markup', 'Markup',                 '%',  'var(--verde)')+
-    linha('venda',  'Preço de venda',        'R$', 'var(--verde)')+
-    linha('lucro',  'Lucro',                  'R$', 'var(--verde)')+
+  const ordem = pv ? ['venda','margem','markup','custo','lucro'] : ['custo','margem','markup','venda','lucro'];
+  const rot = { custo: pv?'Custo que preciso fazer':'Custo (o que ele paga)', margem:'Margem de lucro', markup:'Markup',
+                venda: pv?'Preço que ele quer vender':'Preço de venda', lucro:'Lucro' };
+  const un  = { custo:'R$', venda:'R$', lucro:'R$', margem:'%', markup:'%' };
+  const cor = { custo: pv?'var(--verde)':'', venda: pv?'':'var(--verde)', margem:'var(--dourado)', markup:'var(--verde)', lucro:'var(--verde)' };
+
+  let h = '<div class="chips" style="padding-bottom:8px">'+
+    '<button class="chip '+(!pv?'on':'')+'" data-a="mgModo" data-i="custo">Começo pelo custo</button>'+
+    '<button class="chip '+(pv?'on':'')+'" data-a="mgModo" data-i="venda">Começo pelo preço de venda</button></div>';
+  h += '<div class="cartao"><div class="corpo">'+
+    '<div class="peq" style="margin-bottom:6px">'+
+      (pv ? 'Ele diz por quanto quer vender e a margem que precisa; o app diz o custo que você tem de fazer.'
+          : 'Custo que ele paga e a margem que quer; o app diz por quanto ele vende.')+
+      (MG.rotulo?'<br><b>'+esc(MG.rotulo)+'</b>':'')+'</div>'+
+    ordem.map(k=>linha(k, rot[k], un[k], cor[k])).join('')+
     '<div class="chips" style="padding:12px 0 0">'+
       [15,20,25,30,35,40,50].map(v=>'<button class="chip '+(Math.abs(r.margem-v)<0.005?'on':'')+'" data-a="mgMargem" data-i="'+v+'">'+v+'%</button>').join('')+
     '</div>'+
@@ -2975,13 +3044,21 @@ function painelMargem(){
     h += '<div class="secao">Custo pelo seu preço</div><div class="cartao"><div class="corpo">'+
       '<div class="peq" style="margin-bottom:8px">Toque para usar como custo o que o cliente paga por caixa, pacote ou unidade.</div>'+
       '<div class="chips chips-quebra" style="padding-bottom:0">'+
-      MG.opcoes.map(o=>'<button class="chip '+(Math.abs(r.custo-o.v)<0.005?'on':'')+'" data-a="mgCusto" data-i="'+o.v+'">'+esc(o.rot)+' '+brl(o.v)+'</button>').join('')+
+      MG.opcoes.map(o=>'<button class="chip '+(!pv && Math.abs(r.custo-o.v)<0.005?'on':'')+'" data-a="mgCusto" data-i="'+o.v+'">'+esc(o.rot)+' '+brl(o.v)+'</button>').join('')+
       '</div></div></div>';
+  }
+  if(CAT.length){
+    h += '<div class="secao">Custo pelo preço de tabela</div><div class="cartao"><div class="corpo">'+
+      '<div class="busca" style="margin-bottom:6px">'+ico('busca')+
+        '<input type="text" placeholder="Buscar produto ou código" value="'+esc(MG.busca)+'" data-in="mgBusca" autocomplete="off" autocorrect="off" spellcheck="false"></div>'+
+      '<div id="mg_lista">'+mgListaHTML()+'</div>'+
+      '<div class="peq" style="margin-top:6px">Toque no produto: o custo vira o preço de tabela por pacote, com opção de caixa e unidade.</div>'+
+      '</div></div>';
   }
   h += '<div class="cartao"><div class="corpo">'+
     '<div class="peq"><b>Margem</b> é sobre o preço de venda; <b>markup</b> é sobre o custo. '+
-    'Por isso 30% de margem são 42,86% de markup: o cliente compra a '+brl(r.custo)+', vende a '+brl(r.venda)+
-    ' e fica com '+brl(r.lucro)+' por unidade. Mercado costuma falar em margem; padaria e lanchonete, em markup.</div>'+
+    'Com custo '+brl(r.custo)+' e venda '+brl(r.venda)+', ele fica com '+brl(r.lucro)+' por unidade: '+
+    nm(r.margem,1)+'% de margem, '+nm(r.markup,1)+'% de markup. Mercado costuma falar em margem; padaria e lanchonete, em markup.</div>'+
     '</div></div>';
   if(MG.modal) return h;
   if(MG.voltarPedido)
@@ -2997,9 +3074,9 @@ function abrirMargemModal(){
     '<div class="linha-bt mt10"><button class="bt bt-t" data-a="mgLimpar">Limpar</button>'+
     '<button class="bt bt-p" data-a="fechaModal">'+ico('check')+'Voltar ao pedido</button></div>',
     ()=>{ MG.modal = false; });
-  setTimeout(()=>{ const n=el('mg_custo'); if(n && !MG.opcoes){ n.focus(); n.select(); } }, 150);
+  setTimeout(()=>{ const n=el(MG.modo==='venda'?'mg_venda':'mg_custo'); if(n && !MG.opcoes){ n.focus(); n.select(); } }, 150);
 }
-ACOES.abrirMargem = () => { MG.item = null; MG.rotulo=''; MG.opcoes=null; abrirMargemModal(); };
+ACOES.abrirMargem = () => { MG.item = null; MG.rotulo=''; MG.opcoes=null; MG.busca=''; abrirMargemModal(); };
 function mgPintar(exceto){
   const r = mgCalc();
   ['custo','margem','markup','venda','lucro'].forEach(k=>{
@@ -3007,24 +3084,43 @@ function mgPintar(exceto){
     const n = el('mg_'+k); if(n) n.value = mgFmt(k, r);
   });
   document.querySelectorAll('[data-a="mgMargem"]').forEach(b=>b.classList.toggle('on', Math.abs(r.margem-Number(b.dataset.i))<0.005));
-  document.querySelectorAll('[data-a="mgCusto"]').forEach(b=>b.classList.toggle('on', Math.abs(r.custo-Number(b.dataset.i))<0.005));
+  document.querySelectorAll('[data-a="mgCusto"]').forEach(b=>b.classList.toggle('on', MG.modo!=='venda' && Math.abs(r.custo-Number(b.dataset.i))<0.005));
 }
 ENTRADAS.mg = (v, campo) => {
-  const x = pnum(v);
-  const c = Math.max(0, Number(MG.custo)||0);
-  if(campo==='custo')       MG.custo = x;
-  else if(campo==='margem') MG.margem = Math.min(x, 99.99);
-  else if(campo==='markup') MG.margem = x/(100+x)*100;
-  else if(campo==='venda')  { if(x>0) MG.margem = (x-c)/x*100; }
-  else if(campo==='lucro')  { if(c+x>0) MG.margem = x/(c+x)*100; }
+  const x = pnum(v); const r = mgCalc();
+  if(MG.modo==='venda'){
+    if(campo==='venda')       MG.venda = x;
+    else if(campo==='margem') MG.margem = Math.min(x, 99.99);
+    else if(campo==='markup') MG.margem = x/(100+x)*100;
+    else if(campo==='custo')  { if(r.venda>0) MG.margem = (r.venda-x)/r.venda*100; }
+    else if(campo==='lucro')  { if(r.venda>0) MG.margem = x/r.venda*100; }
+  } else {
+    const c = r.custo;
+    if(campo==='custo')       MG.custo = x;
+    else if(campo==='margem') MG.margem = Math.min(x, 99.99);
+    else if(campo==='markup') MG.margem = x/(100+x)*100;
+    else if(campo==='venda')  { if(x>0) MG.margem = (x-c)/x*100; }
+    else if(campo==='lucro')  { if(c+x>0) MG.margem = x/(c+x)*100; }
+  }
   mgPintar(campo);
 };
+ENTRADAS.mgBusca = v => { MG.busca = v; const l = el('mg_lista'); if(l) l.innerHTML = mgListaHTML(); };
+ACOES.mgModo = m => { const r = mgCalc(); MG.modo = (m==='venda') ? 'venda' : 'custo'; MG.custo = r.custo; MG.venda = r.venda; mgRefazer(); };
 ACOES.mgMargem = v => { MG.margem = Number(v)||0; mgPintar(null); };
-ACOES.mgCusto  = v => { MG.custo  = Number(v)||0; mgPintar(null); };
+ACOES.mgCusto  = v => { const r = mgCalc(); MG.modo = 'custo'; MG.custo = Number(v)||0; MG.margem = r.margem; mgRefazer(); };
+/* produto da tabela: custo = preco por pacote, com caixa e unidade como opcao */
+ACOES.mgProduto = id => {
+  const p = porId[id]; if(!p) return;
+  const cx = p.pCaixa||0, pc = p.pPacote||0, un = p.pUnidade||0;
+  MG.opcoes = [{rot:'Caixa', v:Math.round(cx*100)/100}];
+  if(pc) MG.opcoes.push({rot:'Pacote', v:Math.round(pc*100)/100});
+  if(un && (p.unPorPacote||0)>1) MG.opcoes.push({rot:'Unidade', v:Math.round(un*100)/100});
+  MG.modo = 'custo'; MG.custo = pc || cx; MG.rotulo = p.nome+' — cód. '+p.cod+' (tabela)'; MG.busca = '';
+  mgRefazer();
+};
 ACOES.mgLimpar = () => {
-  MG.custo = 0; MG.margem = 30; MG.rotulo=''; MG.opcoes=null; MG.voltarPedido=false; MG.item=null;
-  if(MG.modal){ abrirMargemModal(); return; }
-  render(); setTimeout(()=>{ const n=el('mg_custo'); if(n){ n.focus(); n.select(); } },120);
+  MG.modo='custo'; MG.custo = 0; MG.venda = 0; MG.margem = 30; MG.rotulo=''; MG.opcoes=null; MG.voltarPedido=false; MG.item=null; MG.busca='';
+  mgRefazer(); setTimeout(()=>{ const n=el('mg_custo'); if(n){ n.focus(); n.select(); } },150);
 };
 ACOES.mgVoltarPedido = () => { MG.voltarPedido = false; irPara('pedido'); };
 /* Do preço do item no pedido: o custo do cliente é o que ele paga a você */
@@ -3038,7 +3134,7 @@ ACOES.simularMargem = i => {
   MG.opcoes = [{rot:'Caixa', v:Math.round(cx*100)/100}];
   if(pc) MG.opcoes.push({rot:'Pacote', v:Math.round(pc*100)/100});
   if(un && p.unPorPacote>1) MG.opcoes.push({rot:'Unidade', v:Math.round(un*100)/100});
-  MG.custo = pc || cx; MG.rotulo = it.nome + ' — cód. ' + it.cod; MG.voltarPedido = false; MG.item = +i;
+  MG.modo = 'custo'; MG.custo = pc || cx; MG.rotulo = it.nome + ' — cód. ' + it.cod; MG.voltarPedido = false; MG.item = +i; MG.busca = '';
   abrirMargemModal();
 };
 
@@ -6331,7 +6427,7 @@ function tituloTela(){
   if(VISTA){
     if(VISTA.t==='revisar'){
       const p = pedidoPorId(VISTA.id);
-      return {tit:'Pedido '+(p?p.num:''), sub:'Confira antes de decidir', volta:true};
+      return {tit:'Pedido '+(p?p.num:''), sub:(p&&p.status==='Rascunho')?'Etapa 3 de 3 · confira antes de fechar':'Confira antes de decidir', volta:true};
     }
     if(VISTA.t==='enviar'){
       const p = pedidoPorId(VISTA.id);
@@ -6352,9 +6448,12 @@ function tituloTela(){
   switch(ABA){
     case 'pedido':
       /* com cliente escolhido a tela e a montagem: ganha seta de voltar (check-in feito) */
-      return {tit: ped && ped.clienteId ? 'Montar pedido' : 'Novo pedido',
-              sub: ped && ped.clienteId ? ('Pedido '+ped.num) : 'Escolha o cliente',
-              volta: !!(ped && ped.clienteId)};
+      if(ped && ped.clienteId){
+        const et = etapaDe(ped);
+        return {tit: et==='dados' ? 'Dados do pedido' : 'Itens do pedido',
+                sub: 'Pedido '+ped.num+' · etapa '+(et==='dados'?'1':'2')+' de 3', volta:true};
+      }
+      return {tit:'Novo pedido', sub:'Escolha o cliente', volta:false};
     case 'clientes':  return {tit:'Clientes', sub:D.clientes.length+' na carteira'};
     case 'painel':    return {tit:'Painel',   sub:perRot(PER)};
     case 'margem':    return {tit:'Margem',   sub:'Simulador para negociar'};
