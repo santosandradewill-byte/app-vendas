@@ -69,6 +69,8 @@ main.com-rodape{padding-bottom:calc(var(--abas) + var(--sa-b) + 96px)}
 /* bloco dobrado ("Ver o texto"): fechado, o conteudo nao entra na conta da rolagem.
    No iPhone o texto escondido esticava a pagina em uma tela em branco no fim. */
 details.cartao:not([open]) > *:not(summary){display:none}
+/* simulador: o valor travado (custo ou venda) ganha borda dourada */
+input.mg-anc{border-color:var(--dourado) !important;box-shadow:0 0 0 2px rgba(242,169,0,.25)}
 
 /* ---------- abas inferiores ---------- */
 #abas{
@@ -629,6 +631,7 @@ const ico = (n,cl) => '<svg class="'+(cl||'')+'" viewBox="0 0 24 24" fill="none"
 /* ---------------- armazenamento ---------------- */
 const K_DADOS = 'harus.dados.v1';
 const K_CAT   = 'harus.catalogo.v1';
+const K_GMAIL = 'harus.gmail.v1';      /* acesso ao Gmail deste aparelho (fora do backup) */
 const K_ABA   = 'harus.aba.v1';
 
 const CFG_PADRAO = {
@@ -636,7 +639,8 @@ const CFG_PADRAO = {
   metaMes:0, metaCaixas:0,
   diasUteis:'seg-sex',
   condPadrao:'28 dias',
-  prefixo:'',
+  prefixo:'REP-',          /* o numero do representante nunca parece numero de compra do cliente */
+  copiaRep:false,          /* copia oculta dos e-mails para o e-mail do representante */
   letra:'p',
   tema:'claro',       /* claro | escuro | auto (segue o aparelho) */
   ultimoBackup:'',    /* AAAA-MM-DD do ultimo backup feito neste aparelho */
@@ -692,6 +696,9 @@ let PERSISTIDO = null;   /* true/false depois que o navegador responde */
 let D = lerJSON(K_DADOS, null) || { cfg:{}, clientes:[], pedidos:[], seq:0, rascunhoId:null };
 D.cfg = Object.assign({}, CFG_PADRAO, D.cfg||{});
 if(!Array.isArray(D.cfg.contatos)) D.cfg.contatos = [];
+/* aparelhos antigos vinham com prefixo vazio: o numero do Anderson (0055) confundia com o do
+   cliente na industria. Passa a REP-; os pedidos ja feitos ficam como estao. */
+if(!D.cfg.prefixo && !D.cfg.prefixoDefinido){ D.cfg.prefixo = 'REP-'; D.cfg.prefixoDefinido = true; }
 /* aparelho de versão antiga não tem marcas: ganha a padrão sem perder nada */
 function normalizarMarcas(){
   if(!Array.isArray(D.cfg.marcas) || !D.cfg.marcas.length)
@@ -1755,7 +1762,8 @@ function montarTexto(ped, marcado, paraCliente){
   L.push(_REGUA);
   /* o numero que a industria tem que usar na NF e o do CLIENTE; o nosso e controle interno */
   if(ped.numCliente)  L.push(b+'Nº DO PEDIDO DO CLIENTE (usar na NF): ' + ped.numCliente + b);
-  L.push((ped.numCliente ? 'Nosso controle: ' : 'Número: ') + ped.num);
+  else if(!paraCliente) L.push('Cliente não informou nº de pedido — emitir com o número de vocês.');
+  L.push('Ref. interna do representante (não usar na NF): ' + ped.num);
   L.push('Data do pedido: ' + dbr(ped.data));
   if(ped.dataEntrega) L.push(b+'Entrega combinada: ' + dbr(ped.dataEntrega)+b);
   if(ped.cond)        L.push('Pagamento: ' + ped.cond);
@@ -2071,6 +2079,21 @@ function telaEnviar(){
     '</div></div>';
 
   h += '<div class="secao">Enviar para a indústria</div>';
+  /* caminho principal: e-mail direto pelo Gmail, com anexos e o pedido em tabela */
+  const dInd = destinatarios(ped, false);
+  if(ped.emails && ped.emails.some(e=>!e.paraCliente)){
+    const u = ped.emails.filter(e=>!e.paraCliente).slice(-1)[0];
+    h += '<div class="aviso" style="margin-bottom:10px;border-color:var(--verde)">'+ico('check')+
+      '<span><b>E-mail enviado em '+horaCurta(u.quando)+'</b> para '+esc(u.para.join(', '))+(u.cc&&u.cc.length?' (cópia: '+esc(u.cc.join(', '))+')':'')+'.</span></div>';
+  }
+  h += '<button class="bt bt-v bt-bloco bt-alto" data-a="gmailEnviar" data-i="'+esc(ped.id)+'" data-v="industria">'+ico('email')+
+    (ped.emails && ped.emails.some(e=>!e.paraCliente) ? 'ENVIAR DE NOVO POR E-MAIL' : 'ENVIAR POR E-MAIL')+'</button>'+
+    '<div class="peq" style="margin:7px 3px 12px">'+
+    (dInd.para.length
+      ? 'Sai direto do Gmail, com PDF e planilha anexados e o pedido em tabela no corpo. Vai para <b>'+esc(dInd.para.join(', '))+'</b>'+
+        (dInd.cc.length?', cópia para '+esc(dInd.cc.join(', ')):'')+'. Você confere antes de sair.'
+      : 'Cadastre em Ajustes › Contatos quem recebe os pedidos (com e-mail) para mandar direto pelo Gmail.')+
+    '</div>';
   if(ped.demo){
     h += '<div class="aviso" style="margin-bottom:10px">'+ico('alerta')+
       '<span><b>Pedido de exemplo — o envio está bloqueado.</b> Nada daqui chega em ninguém '+
@@ -2150,7 +2173,9 @@ function telaEnviar(){
       ico('email')+'E-mail</button>'
              :'<button class="bt bt-l" data-a="verEmail" data-i="'+esc(ped.id)+'" data-v="cliente">'+
       ico('doc')+'Ver como fica</button>')+
-    '</div></div></div>';
+    '</div>'+
+    (cli.email?'<button class="bt bt-l bt-bloco mt10" data-a="gmailEnviar" data-i="'+esc(ped.id)+'" data-v="cliente">'+ico('email')+'Enviar confirmação por e-mail (Gmail)</button>':'')+
+    '</div></div>';
 
   h += cartaoDocumento(ped);
   h += chipsSituacao(ped);
@@ -2986,7 +3011,7 @@ const VISTAS_PAINEL = [
    margem  = lucro / venda        (sobre o preço de venda)
    markup  = lucro / custo        (sobre o custo)
    ===================================================== */
-const MG = { modo:'custo', custo:10, venda:14.29, margem:30, rotulo:'', opcoes:null, voltarPedido:false, modal:false, item:null, busca:'' };
+const MG = { modo:'custo', ultimo:'custo', custo:10, venda:14.29, margem:30, rotulo:'', opcoes:null, voltarPedido:false, modal:false, item:null, busca:'' };
 /* dois caminhos: 'custo' (custo + margem -> preço de venda) ou 'venda' (preço de venda + margem -> custo) */
 function mgCalc(){
   const m = Math.min(Math.max(Number(MG.margem)||0, -900), 99.99);
@@ -2998,6 +3023,11 @@ function mgCalc(){
 function mgFmt(campo, r){
   if(campo==='custo' || campo==='venda' || campo==='lucro') return vlr(r[campo]);
   return nm(r[campo], 2);
+}
+function mgTexto(){
+  return MG.modo==='venda'
+    ? 'o <b>preço de venda está travado</b> — mexendo na margem, muda o custo que você precisa fazer.'
+    : 'o <b>custo está travado</b> — mexendo na margem, muda o preço de venda.';
 }
 function mgRefazer(){ if(MG.modal) abrirMargemModal(); else render(); }
 function mgListaHTML(){
@@ -3017,23 +3047,21 @@ function painelMargem(){
       '<i style="width:4px;align-self:stretch;border-radius:2px;background:'+(cor||'transparent')+'"></i>'+
       '<label for="mg_'+id+'" style="flex:1;font-size:calc(14px * var(--esc));color:var(--grafite2);font-weight:600">'+rot+'</label>'+
       '<input type="text" inputmode="decimal" id="mg_'+id+'" data-in="mg" data-i="'+id+'" value="'+mgFmt(id,r)+'" '+
-        'onfocus="this.select()" onclick="this.select()" '+
+        'onfocus="this.select()" onclick="this.select()" class="'+(id===MG.modo?'mg-anc':'')+'" '+
         'style="width:128px;text-align:right;font-size:calc(21px * var(--esc));font-weight:750;font-variant-numeric:tabular-nums;padding:6px 8px">'+
       '<span style="width:26px;font-size:calc(12px * var(--esc));color:var(--cinza);font-weight:600">'+un+'</span>'+
     '</div>';
-  const ordem = pv ? ['venda','margem','markup','custo','lucro'] : ['custo','margem','markup','venda','lucro'];
-  const rot = { custo: pv?'Custo que preciso fazer':'Custo (o que ele paga)', margem:'Margem de lucro', markup:'Markup',
-                venda: pv?'Preço que ele quer vender':'Preço de venda', lucro:'Lucro' };
+  const ordem = ['custo','margem','markup','venda','lucro'];
+  const rot = { custo:'Custo (o que ele paga)', margem:'Margem de lucro', markup:'Markup', venda:'Preço de venda', lucro:'Lucro' };
   const un  = { custo:'R$', venda:'R$', lucro:'R$', margem:'%', markup:'%' };
   const cor = { custo: pv?'var(--verde)':'', venda: pv?'':'var(--verde)', margem:'var(--dourado)', markup:'var(--verde)', lucro:'var(--verde)' };
 
   let h = '<div class="chips" style="padding-bottom:8px">'+
-    '<button class="chip '+(!pv?'on':'')+'" data-a="mgModo" data-i="custo">Começo pelo custo</button>'+
-    '<button class="chip '+(pv?'on':'')+'" data-a="mgModo" data-i="venda">Começo pelo preço de venda</button></div>';
+    '<button class="chip '+(!pv?'on':'')+'" data-a="mgModo" data-i="custo">Travar o custo</button>'+
+    '<button class="chip '+(pv?'on':'')+'" data-a="mgModo" data-i="venda">Travar o preço de venda</button></div>';
   h += '<div class="cartao"><div class="corpo">'+
     '<div class="peq" style="margin-bottom:6px">'+
-      (pv ? 'Ele diz por quanto quer vender e a margem que precisa; o app diz o custo que você tem de fazer.'
-          : 'Custo que ele paga e a margem que quer; o app diz por quanto ele vende.')+
+      'O app segue o que você digitou por último: <span id="mg_txt">'+mgTexto()+'</span>'+
       (MG.rotulo?'<br><b>'+esc(MG.rotulo)+'</b>':'')+'</div>'+
     ordem.map(k=>linha(k, rot[k], un[k], cor[k])).join('')+
     '<div class="chips" style="padding:12px 0 0">'+
@@ -3084,30 +3112,37 @@ function mgPintar(exceto){
     const n = el('mg_'+k); if(n) n.value = mgFmt(k, r);
   });
   document.querySelectorAll('[data-a="mgMargem"]').forEach(b=>b.classList.toggle('on', Math.abs(r.margem-Number(b.dataset.i))<0.005));
+  document.querySelectorAll('[data-a="mgModo"]').forEach(b=>b.classList.toggle('on', b.dataset.i===MG.modo));
+  ['custo','venda'].forEach(k=>{ const n=el('mg_'+k); if(n) n.classList.toggle('mg-anc', k===MG.modo); });
+  const tx = el('mg_txt'); if(tx) tx.innerHTML = mgTexto();
   document.querySelectorAll('[data-a="mgCusto"]').forEach(b=>b.classList.toggle('on', MG.modo!=='venda' && Math.abs(r.custo-Number(b.dataset.i))<0.005));
 }
+/* Mesa de negociacao: o ultimo valor em R$ que ele digitou (custo ou venda) fica travado.
+   Digitou venda e depois margem -> muda o custo. Digitou custo e depois margem -> muda a venda.
+   Digitou custo e venda em seguida -> os dois ficam e a margem e calculada. */
 ENTRADAS.mg = (v, campo) => {
   const x = pnum(v); const r = mgCalc();
-  if(MG.modo==='venda'){
-    if(campo==='venda')       MG.venda = x;
-    else if(campo==='margem') MG.margem = Math.min(x, 99.99);
-    else if(campo==='markup') MG.margem = x/(100+x)*100;
-    else if(campo==='custo')  { if(r.venda>0) MG.margem = (r.venda-x)/r.venda*100; }
-    else if(campo==='lucro')  { if(r.venda>0) MG.margem = x/r.venda*100; }
-  } else {
-    const c = r.custo;
-    if(campo==='custo')       MG.custo = x;
-    else if(campo==='margem') MG.margem = Math.min(x, 99.99);
-    else if(campo==='markup') MG.margem = x/(100+x)*100;
-    else if(campo==='venda')  { if(x>0) MG.margem = (x-c)/x*100; }
-    else if(campo==='lucro')  { if(c+x>0) MG.margem = x/(c+x)*100; }
+  if(campo==='custo'){
+    MG.custo = x;
+    if(MG.ultimo==='venda' && r.venda>0) MG.margem = (r.venda-x)/r.venda*100;
+    MG.venda = r.venda; MG.modo = 'custo';
+  } else if(campo==='venda'){
+    MG.venda = x;
+    if(MG.ultimo==='custo' && x>0) MG.margem = (x-r.custo)/x*100;
+    MG.custo = r.custo; MG.modo = 'venda';
+  } else if(campo==='margem'){ MG.margem = Math.min(x, 99.99); }
+  else if(campo==='markup'){ MG.margem = x/(100+x)*100; }
+  else if(campo==='lucro'){
+    if(MG.modo==='venda'){ if(r.venda>0) MG.margem = x/r.venda*100; }
+    else { if(r.custo+x>0) MG.margem = x/(r.custo+x)*100; }
   }
+  MG.ultimo = campo;
   mgPintar(campo);
 };
 ENTRADAS.mgBusca = v => { MG.busca = v; const l = el('mg_lista'); if(l) l.innerHTML = mgListaHTML(); };
-ACOES.mgModo = m => { const r = mgCalc(); MG.modo = (m==='venda') ? 'venda' : 'custo'; MG.custo = r.custo; MG.venda = r.venda; mgRefazer(); };
+ACOES.mgModo = m => { const r = mgCalc(); MG.modo = (m==='venda') ? 'venda' : 'custo'; MG.ultimo = MG.modo; MG.custo = r.custo; MG.venda = r.venda; mgRefazer(); };
 ACOES.mgMargem = v => { MG.margem = Number(v)||0; mgPintar(null); };
-ACOES.mgCusto  = v => { const r = mgCalc(); MG.modo = 'custo'; MG.custo = Number(v)||0; MG.margem = r.margem; mgRefazer(); };
+ACOES.mgCusto  = v => { const r = mgCalc(); MG.modo = 'custo'; MG.ultimo = 'custo'; MG.custo = Number(v)||0; MG.margem = r.margem; mgRefazer(); };
 /* produto da tabela: custo = preco por pacote, com caixa e unidade como opcao */
 ACOES.mgProduto = id => {
   const p = porId[id]; if(!p) return;
@@ -3115,11 +3150,11 @@ ACOES.mgProduto = id => {
   MG.opcoes = [{rot:'Caixa', v:Math.round(cx*100)/100}];
   if(pc) MG.opcoes.push({rot:'Pacote', v:Math.round(pc*100)/100});
   if(un && (p.unPorPacote||0)>1) MG.opcoes.push({rot:'Unidade', v:Math.round(un*100)/100});
-  MG.modo = 'custo'; MG.custo = pc || cx; MG.rotulo = p.nome+' — cód. '+p.cod+' (tabela)'; MG.busca = '';
+  MG.modo = 'custo'; MG.ultimo = 'custo'; MG.custo = pc || cx; MG.rotulo = p.nome+' — cód. '+p.cod+' (tabela)'; MG.busca = '';
   mgRefazer();
 };
 ACOES.mgLimpar = () => {
-  MG.modo='custo'; MG.custo = 0; MG.venda = 0; MG.margem = 30; MG.rotulo=''; MG.opcoes=null; MG.voltarPedido=false; MG.item=null; MG.busca='';
+  MG.modo='custo'; MG.ultimo='custo'; MG.custo = 0; MG.venda = 0; MG.margem = 30; MG.rotulo=''; MG.opcoes=null; MG.voltarPedido=false; MG.item=null; MG.busca='';
   mgRefazer(); setTimeout(()=>{ const n=el('mg_custo'); if(n){ n.focus(); n.select(); } },150);
 };
 ACOES.mgVoltarPedido = () => { MG.voltarPedido = false; irPara('pedido'); };
@@ -3134,7 +3169,7 @@ ACOES.simularMargem = i => {
   MG.opcoes = [{rot:'Caixa', v:Math.round(cx*100)/100}];
   if(pc) MG.opcoes.push({rot:'Pacote', v:Math.round(pc*100)/100});
   if(un && p.unPorPacote>1) MG.opcoes.push({rot:'Unidade', v:Math.round(un*100)/100});
-  MG.modo = 'custo'; MG.custo = pc || cx; MG.rotulo = it.nome + ' — cód. ' + it.cod; MG.voltarPedido = false; MG.item = +i; MG.busca = '';
+  MG.modo = 'custo'; MG.ultimo = 'custo'; MG.custo = pc || cx; MG.rotulo = it.nome + ' — cód. ' + it.cod; MG.voltarPedido = false; MG.item = +i; MG.busca = '';
   abrirMargemModal();
 };
 
@@ -3805,13 +3840,28 @@ function telaAjustes(){
     '<div class="peq mt10">O semáforo do painel usa estas metas: verde acima do ritmo, âmbar de 85% a 100%, terracota abaixo.</div>'+
   '</div></div>';
 
+  h += '<div class="secao">E-mail direto (Gmail)</div><div class="cartao"><div class="corpo">'+
+    (gmailToken()
+      ? '<div><b>Conectado</b> desde '+esc(horaCurta(GM.desde))+'. Os pedidos saem direto do Gmail autorizado, com anexos.</div>'
+      : (GM ? '<div>Conectado, mas a permissão de 1 hora venceu. No próximo envio o Google renova sozinho (a tela dele pisca e volta).</div>'
+            : '<div>Ainda não conectado neste aparelho. No primeiro "Enviar por e-mail" o app pede a permissão do Google, uma vez só.</div>'))+
+    '<div class="linha-bt mt10">'+
+      '<button class="bt bt-l" data-a="gmailConectar">'+ico('email')+(GM?'Reconectar':'Conectar agora')+'</button>'+
+      (GM?'<button class="bt bt-l" data-a="gmailDesconectar">Desconectar</button>':'')+
+    '</div>'+
+    '<button class="bt bt-l bt-bloco mt10" data-a="gmailCopia">'+(cfg.copiaRep?ico('check')+'Cópia oculta para mim: ligada':'Cópia oculta para mim: desligada')+'</button>'+
+    '<div class="dica">A cópia oculta vai para o seu e-mail de Ajustes › Seus dados'+(cfg.repEmail?' ('+esc(cfg.repEmail)+')':' (preencha o e-mail acima)')+'.</div>'+
+  '</div></div>';
+
   h += '<div class="secao">Contatos da indústria</div><div class="cartao">';
   cfg.contatos.forEach((c,i)=>{
     h += '<button class="lin" data-a="editarContato" data-i="'+i+'">'+
       '<span class="ini">'+esc(iniciais(c.nome))+'</span>'+
       '<span class="info"><span class="nm">'+esc(c.nome)+'</span>'+
       '<span class="sub"><span>'+esc(c.papel||'')+'</span>'+
-      (c.tel?'<span>'+esc(telBonito(c.tel))+'</span>':'')+'</span></span>'+
+      (c.tel?'<span>'+esc(telBonito(c.tel))+'</span>':'')+
+      (c.email?'<span class="et '+(c.recebe==='nao'?'et-ex':(c.recebe==='cc'?'et-rede':'et-vrj'))+'">'+(c.recebe==='nao'?'sem e-mail':(c.recebe==='cc'?'cópia':'recebe'))+'</span>':'')+
+      '</span></span>'+
       '<span class="seta">'+ico('seta')+'</span></button>';
   });
   h += '<button class="lin" data-a="editarContato" data-i="novo">'+
@@ -3948,7 +3998,7 @@ ACOES.setLetra = t => {
   render();
   aviso(t==='p'?'Letra normal':t==='m'?'Letra maior':'Letra bem maior');
 };
-ENTRADAS.cfg    = (v,k) => { D.cfg[k] = v; gravar(); };
+ENTRADAS.cfg    = (v,k) => { D.cfg[k] = v; if(k==='prefixo') D.cfg.prefixoDefinido = true; gravar(); };
 ENTRADAS.cfgN   = (v,k) => { D.cfg[k] = pnum(v); gravar(); };
 ENTRADAS.cfgTel = (v,k) => { D.cfg[k] = soN(v); gravar(); };
 
@@ -3998,14 +4048,20 @@ ACOES.editarContato = i => {
     '<div class="campo"><label>Nome</label><input type="text" id="k_nome" value="'+esc(c.nome)+'"></div>'+
     '<div class="campo"><label>Função</label><input type="text" id="k_papel" value="'+esc(c.papel)+'" placeholder="Comercial RJ"></div>'+
     '<div class="campo"><label>WhatsApp</label><input type="tel" inputmode="tel" id="k_tel" value="'+esc(c.tel?telBonito(c.tel):'')+'" placeholder="(21) 99999-9999"></div>'+
-    '<div class="campo mb0"><label>E-mail</label><input type="email" inputmode="email" autocapitalize="off" id="k_email" value="'+esc(c.email)+'"></div>',
+    '<div class="campo"><label>E-mail</label><input type="email" inputmode="email" autocapitalize="off" id="k_email" value="'+esc(c.email)+'"></div>'+
+    '<div class="campo mb0"><label>No e-mail do pedido</label><select id="k_recebe">'+
+      '<option value="para"'+((c.recebe||'para')==='para'?' selected':'')+'>Recebe o pedido (Para)</option>'+
+      '<option value="cc"'+(c.recebe==='cc'?' selected':'')+'>Vai em cópia (Cc)</option>'+
+      '<option value="nao"'+(c.recebe==='nao'?' selected':'')+'>Não entra no e-mail</option>'+
+    '</select><div class="dica">O botão "Enviar por e-mail" manda para todos de uma vez: quem recebe vai no Para, quem acompanha vai em cópia.</div></div>',
     '<div class="linha-bt">'+
     (novo?'':'<button class="bt bt-l" data-a="apagarContato" data-i="'+i+'" style="color:var(--terracota)">Apagar</button>')+
     '<button class="bt bt-p" data-a="salvarContato" data-i="'+esc(novo?'novo':i)+'">Salvar</button></div>');
 };
 ACOES.salvarContato = i => {
   const dados = { nome:el('k_nome').value.trim(), papel:el('k_papel').value.trim(),
-                  tel:soN(el('k_tel').value), email:el('k_email').value.trim() };
+                  tel:soN(el('k_tel').value), email:el('k_email').value.trim(),
+                  recebe: (el('k_recebe')||{}).value || 'para' };
   if(!dados.nome){ aviso('Informe o nome.'); return; }
   if(i==='novo'){ dados.id='c'+uid(); D.cfg.contatos.push(dados); }
   else Object.assign(D.cfg.contatos[+i], dados);
@@ -5059,9 +5115,9 @@ function pdfDoPedido(ped, paraCliente){
   let yd = y+9;
   if(ped.numCliente){
     parDireita(yd, 'Pedido do cliente (usar na NF)', ped.numCliente, 9.5, 12); yd += 15;
-    parDireita(yd, 'Nosso controle', ped.num, 8.5, 9); yd += 12;
+    parDireita(yd, 'Ref. do representante', ped.num, 8.5, 9); yd += 12;
   } else {
-    parDireita(yd, 'Pedido', ped.num, 9.5, 11); yd += 14;
+    parDireita(yd, 'Ref. do representante', ped.num, 9, 10); yd += 14;
   }
   pg.txt(A4L-M, yd, dbr(ped.data), {tam:9, cor:CINZA_PDF, align:'r'}); yd += 12;
   if(ped.dataEntrega){ parDireita(yd, 'Entrega', dbr(ped.dataEntrega), 9, 9.5); yd += 13; }
@@ -6159,13 +6215,16 @@ function assuntoPedido(ped, paraCliente){
   const t = totais(ped);
   const quem = cli.fantasia || cli.razao || 'cliente';
   const onde = [cli.loja, cli.cidade].filter(Boolean).join(', ');
+  /* o numero que vai na frente e o do CLIENTE (e o que a industria usa na nota);
+     o do representante vai no fim, com nome de referencia, para ninguem confundir */
   const partes = [];
-  partes.push((paraCliente?'Confirmação de pedido ':'Pedido ') + ped.num);
+  if(paraCliente) partes.push('Confirmação de pedido' + (ped.numCliente ? ' ' + ped.numCliente : ''));
+  else partes.push(ped.numCliente ? 'Pedido de compra ' + (/^[A-Za-z]/.test(ped.numCliente) ? ped.numCliente : 'nº '+ped.numCliente)
+                                  : 'Pedido (sem nº do cliente)');
   partes.push(quem + (onde ? ' ('+onde+')' : ''));
   if(ped.dataEntrega) partes.push('entrega '+dbr(ped.dataEntrega).slice(0,5));
-  if(ped.numCliente)
-    partes.push(/^[A-Za-z]/.test(ped.numCliente) ? ped.numCliente : 'OC '+ped.numCliente);
   partes.push(brl(t.liquido));
+  partes.push('ref. ' + ped.num);
   return partes.join(' — ');
 }
 
@@ -6202,11 +6261,17 @@ function emailHtml(ped, paraCliente){
         esc(nomeMarca().toUpperCase())+'</div>'+
       '<div style="'+fonte+';font-size:calc(20px * var(--esc));font-weight:700;color:'+EM.creme+';padding-top:3px">'+
         (ped.numCliente
-          ? (paraCliente?'Confirmação do pedido':'Pedido do cliente')+' '+esc(ped.numCliente)
-          : (paraCliente?'Confirmação de pedido':'Pedido')+' '+esc(ped.num))+'</div>'+
+          ? (paraCliente?'Confirmação do pedido':'Pedido de compra')+' '+esc(ped.numCliente)
+          : (paraCliente?'Confirmação de pedido':'Pedido'))+'</div>'+
+      (ped.numCliente && !paraCliente
+        ? '<div style="'+fonte+';font-size:calc(12.5px * var(--esc));font-weight:700;color:'+EM.dourado+';padding-top:3px">'+
+          'Nº do pedido do cliente: usar este na nota fiscal</div>' : '')+
+      (!ped.numCliente && !paraCliente
+        ? '<div style="'+fonte+';font-size:calc(12.5px * var(--esc));color:'+EM.dourado+';padding-top:3px">'+
+          'Cliente não informou nº de pedido — emitir com o número de vocês</div>' : '')+
       '<div style="'+fonte+';font-size:calc(12.5px * var(--esc));color:#B7B0A9;padding-top:4px">'+
         dbr(ped.data)+
-        (ped.numCliente?' &nbsp;·&nbsp; Nosso controle: <span style="color:'+EM.creme+'">'+esc(ped.num)+'</span>':'')+
+        ' &nbsp;·&nbsp; Ref. interna do representante: <span style="color:'+EM.creme+'">'+esc(ped.num)+'</span>'+
         (ped.dataEntrega?' &nbsp;·&nbsp; Entrega: <span style="color:'+EM.dourado+';font-weight:700">'+
           dbr(ped.dataEntrega)+'</span>':'')+
       '</div>'+
@@ -6343,6 +6408,171 @@ function emailHtml(ped, paraCliente){
   h += '</div>';
   return h;
 }
+
+/* =====================================================
+   E-MAIL DIRETO PELO GMAIL (API do Google) — sem biblioteca
+   O Anderson autoriza uma vez neste aparelho; o e-mail sai da conta dele,
+   com o pedido em tabela no corpo e PDF + planilha anexados.
+   Fluxo: redireciona para o Google (response_type=token), volta com o
+   token no #hash, guarda 1 h em K_GMAIL e retoma o envio pendente.
+   ===================================================== */
+const GMAIL_CLIENT_ID = '155708121820-afqmuubq34fq2o1v7snba388smtiuhmt.apps.googleusercontent.com';
+const GMAIL_ESCOPO = 'https://www.googleapis.com/auth/gmail.send';
+let GM = lerJSON(K_GMAIL, null);
+function gmailToken(){ return (GM && GM.token && GM.exp > Date.now()+60000) ? GM.token : null; }
+function gmailRedirect(){ return location.origin + location.pathname; }
+function gmailPedirAcesso(pendente){
+  const e = encodeURIComponent;
+  try{ localStorage.setItem('harus.gmail.pendente', JSON.stringify(pendente||{})); }catch(x){}
+  const st = 'g'+Math.random().toString(36).slice(2);
+  try{ localStorage.setItem('harus.gmail.state', st); }catch(x){}
+  const hint = (GM && GM.email) || (SESSAO && SESSAO.email) || '';
+  location.href = 'https://accounts.google.com/o/oauth2/v2/auth?client_id='+e(GMAIL_CLIENT_ID)+
+    '&redirect_uri='+e(gmailRedirect())+'&response_type=token&scope='+e(GMAIL_ESCOPO)+
+    '&include_granted_scopes=true&state='+st+(hint?'&login_hint='+e(hint):'');
+}
+/* na volta do Google: guarda o token e retoma o que estava fazendo */
+function gmailRetorno(){
+  const h = location.hash || '';
+  if(!/access_token=|error=/.test(h)) return;
+  const p = new URLSearchParams(h.slice(1));
+  try{ history.replaceState(null, '', location.pathname + location.search); }catch(e){}
+  let pend = null; try{ pend = JSON.parse(localStorage.getItem('harus.gmail.pendente')||'null'); localStorage.removeItem('harus.gmail.pendente'); }catch(e){}
+  const st = localStorage.getItem('harus.gmail.state'); localStorage.removeItem('harus.gmail.state');
+  if(p.get('error')){ setTimeout(()=>aviso('O Google não liberou o envio: '+p.get('error')), 600); return; }
+  if(st && p.get('state') && p.get('state')!==st) return;
+  GM = { token:p.get('access_token'), exp: Date.now() + (parseInt(p.get('expires_in')||'3600',10)-30)*1000,
+         desde: (GM&&GM.desde)||new Date().toISOString() };
+  try{ localStorage.setItem(K_GMAIL, JSON.stringify(GM)); }catch(e){}
+  if(pend && pend.pedidoId){
+    setTimeout(()=>{ if(precisaEntrar()) return; ACOES.irEnviar(pend.pedidoId); ACOES.gmailEnviar(pend.pedidoId, pend.variante); }, 400);
+  } else setTimeout(()=>{ aviso('Gmail conectado neste aparelho'); if(ABA==='ajustes') render(); }, 400);
+}
+ACOES.gmailConectar = () => gmailPedirAcesso(null);
+ACOES.gmailDesconectar = () => { GM = null; try{ localStorage.removeItem(K_GMAIL); }catch(e){} render(); aviso('Gmail desconectado deste aparelho'); };
+ACOES.gmailCopia = () => { D.cfg.copiaRep = !D.cfg.copiaRep; gravar(); render(); };
+
+/* quem recebe: industria = contatos com e-mail (Para / Cc); cliente = e-mail do cadastro */
+function destinatarios(ped, paraCliente){
+  const cli = clienteDe(ped) || {};
+  if(paraCliente) return { para: cli.email ? [cli.email] : [], cc: [] };
+  const cs = D.cfg.contatos.filter(c=>c.email && (c.recebe||'para')!=='nao');
+  return { para: cs.filter(c=>(c.recebe||'para')==='para').map(c=>c.email),
+           cc:   cs.filter(c=>c.recebe==='cc').map(c=>c.email) };
+}
+function b64Bytes(x){
+  if(typeof x === 'string') return btoa(x);
+  const u8 = x instanceof Uint8Array ? x : new Uint8Array(x.buffer || x);
+  let s=''; for(let i=0;i<u8.length;i+=0x8000) s += String.fromCharCode.apply(null, u8.subarray(i, i+0x8000));
+  return btoa(s);
+}
+function b64Txt(t){ return b64Bytes(new TextEncoder().encode(t)); }
+function quebra76(b){ return b.replace(/(.{76})/g, '$1\r\n'); }
+function rfc2047(t){ return /^[\x20-\x7e]*$/.test(t) ? t : '=?UTF-8?B?'+b64Txt(t)+'?='; }
+/* o HTML do app usa calc(...var(--esc)) para a letra grande; e-mail nao entende: vira px fixo */
+function htmlParaEmail(html){
+  const corpo = html.replace(/calc\(\s*([\d.]+)px\s*\*\s*var\(--esc\)\s*\)/g, '$1px');
+  return '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"></head>'+
+         '<body style="margin:0;padding:12px;background:#ffffff">'+corpo+'</body></html>';
+}
+function montarMime(m){
+  const b = '=_harus_' + Date.now(), alt = '=_alt_' + Date.now();
+  let t = 'To: ' + m.para.join(', ') + '\r\n';
+  if(m.cc && m.cc.length)  t += 'Cc: ' + m.cc.join(', ') + '\r\n';
+  if(m.bcc && m.bcc.length) t += 'Bcc: ' + m.bcc.join(', ') + '\r\n';
+  t += 'Subject: ' + rfc2047(m.assunto) + '\r\nMIME-Version: 1.0\r\n';
+  t += 'Content-Type: multipart/mixed; boundary="' + b + '"\r\n\r\n';
+  t += '--' + b + '\r\nContent-Type: multipart/alternative; boundary="' + alt + '"\r\n\r\n';
+  t += '--' + alt + '\r\nContent-Type: text/plain; charset="UTF-8"\r\nContent-Transfer-Encoding: base64\r\n\r\n' + quebra76(b64Txt(m.texto)) + '\r\n';
+  t += '--' + alt + '\r\nContent-Type: text/html; charset="UTF-8"\r\nContent-Transfer-Encoding: base64\r\n\r\n' + quebra76(b64Txt(m.html)) + '\r\n';
+  t += '--' + alt + '--\r\n';
+  (m.anexos||[]).forEach(a=>{
+    t += '--' + b + '\r\nContent-Type: ' + a.tipo + '; name="' + a.nome + '"\r\n' +
+         'Content-Disposition: attachment; filename="' + a.nome + '"\r\nContent-Transfer-Encoding: base64\r\n\r\n' +
+         quebra76(b64Bytes(a.dados)) + '\r\n';
+  });
+  t += '--' + b + '--\r\n';
+  return t;
+}
+function anexosDoPedido(ped, paraCliente){
+  const L = [ {nome: nomeArquivo(ped,'pdf',paraCliente), tipo:'application/pdf', dados: pdfDoPedido(ped, paraCliente)} ];
+  if(!paraCliente) L.push({nome: nomeArquivo(ped,'xlsx'), tipo: TIPO_XLSX, dados: xlsxDoPedido(ped)});
+  if(!paraCliente && ped.anexo && ped.anexo.dados){
+    try{ L.push({nome:'pedido-original-'+ped.num+'.jpg', tipo:'image/jpeg', dados: atob(ped.anexo.dados.split(',')[1])}); }catch(e){}
+  }
+  return L;
+}
+/* 1o toque: conferencia (para quem, assunto, anexos). 2o toque: envia. */
+ACOES.gmailEnviar = (id, variante) => {
+  const ped = pedidoPorId(id); if(!ped) return;
+  if(!ped.itens.length){ aviso('O pedido está sem itens.'); return; }
+  if(ehExemplo(ped)) return;
+  const paraCliente = variante === 'cliente';
+  const d = destinatarios(ped, paraCliente);
+  if(!d.para.length){
+    aviso(paraCliente ? 'Este cliente não tem e-mail no cadastro.' : 'Nenhum contato da indústria com e-mail marcado "Recebe". Veja em Ajustes › Contatos.');
+    return;
+  }
+  if(!gmailToken()){
+    modal('Conectar o Gmail',
+      '<p style="margin:2px 0 10px;font-size:calc(14.5px * var(--esc));line-height:1.5">Para mandar o pedido direto por e-mail, o app precisa da sua permissão no Google. '+
+      'É uma vez só neste aparelho: vai abrir a tela do Google, você escolhe a conta <b>'+esc((SESSAO&&SESSAO.email)||'')+'</b> e toca em <b>Permitir</b>. Depois o app volta sozinho e continua o envio.</p>'+
+      '<div class="peq">Permissão pedida: só "enviar e-mail em seu nome". O app não lê a sua caixa.</div>',
+      '<button class="bt bt-p bt-bloco" data-a="gmailAutorizar" data-i="'+esc(id)+'" data-v="'+(paraCliente?'cliente':'industria')+'">Abrir o Google e permitir</button>'+
+      '<button class="bt bt-t bt-bloco mt10" data-a="fechaModal">Agora não</button>');
+    return;
+  }
+  const anexos = anexosDoPedido(ped, paraCliente);
+  const assunto = assuntoPedido(ped, paraCliente);
+  const bcc = (D.cfg.copiaRep && D.cfg.repEmail) ? [D.cfg.repEmail] : [];
+  modal(paraCliente ? 'Enviar confirmação ao cliente' : 'Enviar para a indústria',
+    '<table class="tabelinha">'+
+      '<tr><td>Para</td><td style="word-break:break-all">'+d.para.map(esc).join('<br>')+'</td></tr>'+
+      (d.cc.length?'<tr><td>Cópia</td><td style="word-break:break-all">'+d.cc.map(esc).join('<br>')+'</td></tr>':'')+
+      (bcc.length?'<tr><td>Cópia oculta</td><td style="word-break:break-all">'+esc(bcc[0])+'</td></tr>':'')+
+      '<tr><td>Assunto</td><td>'+esc(assunto)+'</td></tr>'+
+      '<tr><td>Anexos</td><td>'+anexos.map(a=>esc(a.nome)).join('<br>')+'</td></tr>'+
+      '<tr><td>Corpo</td><td>Pedido em tabela: cliente completo, itens, totais, entrega e pagamento</td></tr>'+
+    '</table>'+
+    '<div class="peq" style="margin-top:10px">Sai do Gmail que você autorizou neste aparelho e fica na pasta Enviados dele.</div>',
+    '<button class="bt bt-v bt-bloco bt-alto" data-a="gmailDisparar" data-i="'+esc(id)+'" data-v="'+(paraCliente?'cliente':'industria')+'">'+ico('email')+'ENVIAR AGORA</button>'+
+    '<button class="bt bt-t bt-bloco mt10" data-a="fechaModal">Voltar</button>');
+};
+ACOES.gmailAutorizar = (id, variante) => { gmailPedirAcesso({pedidoId:id, variante:variante}); };
+ACOES.gmailDisparar = async (id, variante) => {
+  const ped = pedidoPorId(id); if(!ped) return;
+  const paraCliente = variante === 'cliente';
+  const tok = gmailToken();
+  if(!tok){ fechaModal(); gmailPedirAcesso({pedidoId:id, variante:variante}); return; }
+  const bt = document.querySelector('[data-a="gmailDisparar"]'); if(bt){ bt.disabled = true; bt.textContent = 'Enviando...'; }
+  try{
+    const d = destinatarios(ped, paraCliente);
+    const bcc = (D.cfg.copiaRep && D.cfg.repEmail) ? [D.cfg.repEmail] : [];
+    const mime = montarMime({ para:d.para, cc:d.cc, bcc:bcc, assunto: assuntoPedido(ped, paraCliente),
+      html: htmlParaEmail(emailHtml(ped, paraCliente)), texto: montarTexto(ped, false, paraCliente),
+      anexos: anexosDoPedido(ped, paraCliente) });
+    /* endpoint JSON com o MIME em base64url: e o que o navegador consegue chamar (CORS) */
+    const raw = b64Txt(mime).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+    const r = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
+      method:'POST', headers:{ 'Authorization':'Bearer '+tok, 'Content-Type':'application/json' }, body: JSON.stringify({raw:raw}) });
+    if(r.status===401 || r.status===403){
+      GM = null; try{ localStorage.removeItem(K_GMAIL); }catch(e){}
+      fechaModal(); gmailPedirAcesso({pedidoId:id, variante:variante}); return;
+    }
+    if(!r.ok){ let m=''; try{ m = (await r.json()).error.message; }catch(e){} throw new Error(m || ('HTTP '+r.status)); }
+    const js = await r.json();
+    ped.emails = ped.emails || [];
+    ped.emails.push({ quando:new Date().toISOString(), para:d.para, cc:d.cc, assunto: assuntoPedido(ped, paraCliente),
+                      via:'gmail', paraCliente: paraCliente, idGmail: js.id||'' });
+    if(!paraCliente && (ped.status==='Rascunho' || ped.status==='Fechado')){ ped.status = 'Enviado'; ped.enviadoEm = new Date().toISOString(); }
+    if(D.rascunhoId===id) D.rascunhoId = null;
+    gravar(); fechaModal(); render();
+    aviso('E-mail enviado para '+d.para.join(', '));
+  }catch(e){
+    if(bt){ bt.disabled = false; bt.textContent = 'ENVIAR AGORA'; }
+    aviso(/failed to fetch|network/i.test(String(e.message)) ? 'Sem internet agora. Tente de novo com sinal.' : 'Não consegui enviar: '+e.message);
+  }
+};
 
 /* ---------- copiar preservando a formatação ----------
    O celular não deixa o app escrever direto no corpo do e-mail, então o
@@ -6646,6 +6876,7 @@ aplicarTema();
 aplicarMarca();
 garantirCodigosClientes();
 ligarNuvem();
+gmailRetorno();
 ouvirTemaDoAparelho();
 semearNaPrimeiraVez();
 fixarArmazenamento();
