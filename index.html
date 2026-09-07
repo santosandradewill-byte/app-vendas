@@ -3215,15 +3215,37 @@ function tbNomeSeguro(t){
 function linhasTabela(t){
   const L = CAT.slice().sort(compararProdutos);
   return L.map(p=>({ cod:String(p.cod||''), nome:p.nome, categoria:p.categoria||'', caixa:rotuloCaixa(p), canal:CANAL_NOME[p.canal]||'', marca:String(p.marca||''), grupo:rotuloGrupo(p),
-    pCaixa: precoContrato(p.pCaixa||0, t.pct), pPacote: p.pPacote ? precoContrato(p.pPacote, t.pct) : 0 }));
+    food: p.canal==='FOODSERVICE',
+    pCaixa: precoContrato(p.pCaixa||0, t.pct), pPacote: p.pPacote ? precoContrato(p.pPacote, t.pct) : 0,
+    pUn: (p.pPacote && p.unNoPacote) ? Math.round(precoContrato(p.pPacote, t.pct)/p.unNoPacote*100)/100 : 0,
+    pKg: p.kgCaixa ? Math.round(precoContrato(p.pCaixa||0, t.pct)/p.kgCaixa*100)/100 : 0,
+    unTxt: (p.unNoPacote ? nm(p.unNoPacote, p.unNoPacote%1?1:0)+' un/pct' : '') }));
 }
 function tbSlug(t){ return 'tabela-'+(sac(t.nome).replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'').slice(0,28)||'precos'); }
 function pdfDaTabela(t){
   const A4L = 595.28, A4A = 841.89, M = 38;
   const paginas = []; const recursos = {};
   const mk = marcaAtual();
-  let pg, y;
-  const cab = () => {
+  let pg, y, grupo = null, food = false;
+  /* colunas: Varejo = cod, produto, caixa, R$ caixa, R$ pacote.
+     Food Service = + R$ unidade (dentro do pacote) e R$ kg, que e como o cozinheiro compara. */
+  const X_NOME = M+46;
+  const col = () => food
+    ? { caixa:M+218, pcx:A4L-M-152, ppct:A4L-M-102, pun:A4L-M-52, pkg:A4L-M-4, larg:M+218-X_NOME-8 }
+    : { caixa:M+312, pcx:A4L-M-68,  ppct:A4L-M-4,   pun:0,        pkg:0,       larg:M+312-X_NOME-8 };
+  const cabColunas = () => {
+    const c = col();
+    pg.ret(M, y-11, A4L-2*M, 16, GRAFITE_PDF);
+    pg.txt(M+5, y, 'CÓD.', {tam:7.5, negrito:true, cor:CREME_PDF});
+    pg.txt(X_NOME, y, 'PRODUTO', {tam:7.5, negrito:true, cor:CREME_PDF});
+    pg.txt(c.caixa, y, 'CAIXA', {tam:7.5, negrito:true, cor:CREME_PDF});
+    pg.txt(c.pcx, y, 'R$ CAIXA', {tam:7.5, negrito:true, cor:CREME_PDF, align:'r'});
+    pg.txt(c.ppct, y, 'R$ PACOTE', {tam:7.5, negrito:true, cor:CREME_PDF, align:'r'});
+    if(food){ pg.txt(c.pun, y, 'R$ UNID.', {tam:7.5, negrito:true, cor:CREME_PDF, align:'r'});
+              pg.txt(c.pkg, y, 'R$ KG', {tam:7.5, negrito:true, cor:CREME_PDF, align:'r'}); }
+    y += 14;
+  };
+  const novaPagina = () => {
     pg = NovaPagina(A4L, A4A); paginas.push(pg); y = M;
     const fim = pg.txt(M, y+16, (mk.logo1||mk.nome||'')+' ', {tam:20, negrito:true, cor:GRAFITE_PDF});
     if(mk.logo2) pg.txt(fim, y+16, mk.logo2, {tam:20, negrito:true, cor:DOURADO_PDF});
@@ -3231,41 +3253,42 @@ function pdfDaTabela(t){
     pg.txt(A4L-M, y+12, dbr(hoje()), {tam:9, cor:CINZA_PDF, align:'r'});
     pg.txt(A4L-M, y+26, t.nome, {tam:10, negrito:true, cor:GRAFITE_PDF, align:'r'});
     y += 40; pg.linha(M, y, A4L-M, y, 2, GRAFITE_PDF); y += 16;
-    pg.ret(M, y-11, A4L-2*M, 16, GRAFITE_PDF);
-    pg.txt(M+5, y, 'CÓD.', {tam:7.5, negrito:true, cor:CREME_PDF});
-    pg.txt(X_NOME, y, 'PRODUTO', {tam:7.5, negrito:true, cor:CREME_PDF});
-    pg.txt(X_CAIXA, y, 'CAIXA', {tam:7.5, negrito:true, cor:CREME_PDF});
-    pg.txt(X_PCX, y, 'R$ CAIXA', {tam:7.5, negrito:true, cor:CREME_PDF, align:'r'});
-    pg.txt(X_PPCT, y, 'R$ PACOTE', {tam:7.5, negrito:true, cor:CREME_PDF, align:'r'});
-    y += 14;
+    /* na primeira pagina o cabecalho das colunas vem junto com a primeira secao; nas seguintes, repete */
+    if(grupo){ pg.txt(M+5, y-2, grupo+' (continuação)', {tam:8, negrito:true, cor:CINZA_PDF}); y += 12; cabColunas(); }
   };
-  /* colunas com folga: o rotulo da caixa ("CX pequena · 40 pct") nao encosta mais no preco */
-  const X_NOME = M+46, X_CAIXA = M+312, X_PCX = A4L-M-68, X_PPCT = A4L-M-4;
-  const LARG_NOME = X_CAIXA - X_NOME - 8;
-  cab();
-  let cat = null, grupo = null, zebra = 0;
+  novaPagina();
+  let cat = null, zebra = 0;
   linhasTabela(t).forEach(l=>{
-    if(y > A4A - M - 30) cab();
+    if(y > A4A - M - 30) novaPagina();
     if(l.grupo !== grupo){
-      grupo = l.grupo; cat = null;
-      if(y > A4A - M - 60) cab();
-      y += 6; pg.ret(M, y-9, A4L-2*M, 15, LINHA_PDF);
-      pg.txt(M+5, y+1, grupo, {tam:8.5, negrito:true, cor:GRAFITE_PDF}); y += 16;
+      grupo = l.grupo; food = l.food; cat = null;
+      if(y > A4A - M - 74) { novaPagina(); }
+      else {
+        y += 6; pg.ret(M, y-9, A4L-2*M, 15, LINHA_PDF);
+        pg.txt(M+5, y+1, grupo, {tam:8.5, negrito:true, cor:GRAFITE_PDF}); y += 18;
+        cabColunas();
+      }
     }
     if(l.categoria !== cat){
       cat = l.categoria;
-      if(y > A4A - M - 44) cab();
+      if(y > A4A - M - 44) novaPagina();
       y += 3; pg.txt(M+5, y, cat.toUpperCase(), {tam:7.5, negrito:true, cor:CINZA_PDF}); y += 12;
     }
-    const nomeL = quebrarLinhas(l.nome, LARG_NOME, 8.5, false);
+    const c = col();
+    const nomeL = quebrarLinhas(l.nome, c.larg, 8.5, false);
     const alt = Math.max(1, nomeL.length)*10 + 5;
     if(zebra%2===0) pg.ret(M, y-8, A4L-2*M, alt, CREME_PDF);
     pg.txt(M+5, y, l.cod, {tam:8, cor:GRAFITE_PDF});
     nomeL.forEach((ln,k)=>pg.txt(X_NOME, y+k*10, ln, {tam:8.5, negrito:k===0, cor:GRAFITE_PDF}));
-    pg.txt(X_CAIXA, y, l.caixa, {tam:7.5, cor:CINZA_PDF});
-    pg.txt(X_PCX, y, brl(l.pCaixa), {tam:8.5, negrito:true, cor:GRAFITE_PDF, align:'r'});
-    if(l.pPacote) pg.txt(X_PPCT, y, brl(l.pPacote), {tam:8.5, cor:GRAFITE_PDF, align:'r'});
-    y += alt; zebra++;
+    pg.txt(c.caixa, y, l.caixa, {tam:7, cor:CINZA_PDF});
+    if(food && l.unTxt) pg.txt(c.caixa, y+9, l.unTxt, {tam:6.5, cor:CINZA_PDF});
+    pg.txt(c.pcx, y, brl(l.pCaixa), {tam:8.5, negrito:true, cor:GRAFITE_PDF, align:'r'});
+    if(l.pPacote) pg.txt(c.ppct, y, brl(l.pPacote), {tam:8.5, cor:GRAFITE_PDF, align:'r'});
+    if(food){
+      if(l.pUn) pg.txt(c.pun, y, brl(l.pUn), {tam:8.5, cor:GRAFITE_PDF, align:'r'});
+      if(l.pKg) pg.txt(c.pkg, y, brl(l.pKg), {tam:8.5, cor:GRAFITE_PDF, align:'r'});
+    }
+    y += Math.max(alt, (food && l.unTxt) ? 19 : 0); zebra++;
   });
   y += 14; pg.linha(M, y, A4L-M, y, 0.5, LINHA_PDF); y += 14;
   const rep = [D.cfg.repNome, D.cfg.repTel?telBonito(D.cfg.repTel):'', D.cfg.repEmail].filter(Boolean).join('  ·  ');
@@ -3274,13 +3297,13 @@ function pdfDaTabela(t){
 }
 function xlsxDaTabela(t){
   const L = [[{v:'Tabela de preços — '+t.nome, s:'titulo'}], [{v:nomeMarca()+' · '+dbr(hoje()), s:'cinza'}], []];
-  L.push(['Marca','Canal','Categoria','Código','Produto','Caixa','R$ caixa','R$ pacote'].map(v=>({v,s:'negrito'})));
+  L.push(['Marca','Canal','Categoria','Código','Produto','Caixa','Un/pct','R$ caixa','R$ pacote','R$ unidade','R$ kg'].map(v=>({v,s:'negrito'})));
   let g = null;
   linhasTabela(t).forEach(l=>{
     if(l.grupo!==g){ g = l.grupo; L.push([{v:g, s:'negrito'}]); }
-    L.push([l.marca, l.canal, l.categoria, l.cod, l.nome, l.caixa, {v:l.pCaixa,s:'moeda'}, l.pPacote?{v:l.pPacote,s:'moeda'}:'']);
+    L.push([l.marca, l.canal, l.categoria, l.cod, l.nome, l.caixa, l.unTxt||'', {v:l.pCaixa,s:'moeda'}, l.pPacote?{v:l.pPacote,s:'moeda'}:'', l.pUn?{v:l.pUn,s:'moeda'}:'', l.pKg?{v:l.pKg,s:'moeda'}:'']);
   });
-  return xlsxDe('Tabela', L, [9, 13, 18, 9, 44, 20, 12, 12]);
+  return xlsxDe('Tabela', L, [9, 13, 18, 9, 44, 20, 10, 12, 12, 12, 10]);
 }
 function textoTabela(t){
   const L = ['TABELA DE PREÇOS — '+t.nome+' — '+nomeMarca(), dbr(hoje()), _REGUA];
@@ -3288,7 +3311,8 @@ function textoTabela(t){
   linhasTabela(t).forEach(l=>{
     if(l.grupo!==g){ g=l.grupo; cat=null; L.push('', '== '+g+' =='); }
     if(l.categoria!==cat){ cat=l.categoria; L.push('', cat.toUpperCase()); }
-    L.push(l.cod+' — '+l.nome+' ('+l.caixa+') — '+brl(l.pCaixa)+' cx'+(l.pPacote?' · '+brl(l.pPacote)+' pct':''));
+    L.push(l.cod+' — '+l.nome+' ('+l.caixa+') — '+brl(l.pCaixa)+' cx'+(l.pPacote?' · '+brl(l.pPacote)+' pct':'')+
+      (l.food && l.pUn ? ' · '+brl(l.pUn)+' un' : '')+(l.food && l.pKg ? ' · '+brl(l.pKg)+' kg' : ''));
   });
   L.push('', 'Preços por caixa fechada. '+[D.cfg.repNome, D.cfg.repTel?telBonito(D.cfg.repTel):''].filter(Boolean).join(' · '));
   return L.join('\n');
@@ -4382,7 +4406,7 @@ ACOES.editarContato = i => {
     '<div class="campo"><label>Nome</label><input type="text" id="k_nome" value="'+esc(c.nome)+'"></div>'+
     '<div class="campo"><label>Função</label><input type="text" id="k_papel" value="'+esc(c.papel)+'" placeholder="Comercial RJ"></div>'+
     '<div class="campo"><label>WhatsApp</label><input type="tel" inputmode="tel" id="k_tel" value="'+esc(c.tel?telBonito(c.tel):'')+'" placeholder="(21) 99999-9999"></div>'+
-    '<div class="campo"><label>E-mail</label><input type="email" inputmode="email" autocapitalize="off" id="k_email" value="'+esc(c.email)+'"></div>'+
+    '<div class="campo"><label>E-mail'+(novo?' (pode colar vários, separados por vírgula)':'')+'</label><input type="text" inputmode="email" autocapitalize="off" autocorrect="off" spellcheck="false" id="k_email" value="'+esc(c.email)+'" placeholder="'+(novo?'pedidos@harus.com, faturamento@harus.com':'')+'"></div>'+
     '<div class="campo mb0"><label>No e-mail do pedido</label><select id="k_recebe">'+
       '<option value="para"'+((c.recebe||'para')==='para'?' selected':'')+'>Recebe o pedido (Para)</option>'+
       '<option value="cc"'+(c.recebe==='cc'?' selected':'')+'>Vai em cópia (Cc)</option>'+
@@ -4393,13 +4417,21 @@ ACOES.editarContato = i => {
     '<button class="bt bt-p" data-a="salvarContato" data-i="'+esc(novo?'novo':i)+'">Salvar</button></div>');
 };
 ACOES.salvarContato = i => {
-  const dados = { nome:el('k_nome').value.trim(), papel:el('k_papel').value.trim(),
-                  tel:soN(el('k_tel').value), email:el('k_email').value.trim(),
-                  recebe: (el('k_recebe')||{}).value || 'para' };
-  if(!dados.nome){ aviso('Informe o nome.'); return; }
-  if(i==='novo'){ dados.id='c'+uid(); D.cfg.contatos.push(dados); }
-  else Object.assign(D.cfg.contatos[+i], dados);
-  gravar(); fechaModal(); render(); aviso('Contato salvo');
+  /* varios e-mails no mesmo campo viram varios contatos (mesma funcao, mesmo Para/Copia) */
+  const emails = el('k_email').value.split(/[\s,;]+/).map(e=>e.trim()).filter(Boolean);
+  const invalido = emails.find(e=>!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e));
+  if(invalido){ aviso('E-mail inválido: '+invalido); return; }
+  const base = { nome:el('k_nome').value.trim(), papel:el('k_papel').value.trim(),
+                 tel:soN(el('k_tel').value), email:emails[0]||'',
+                 recebe: (el('k_recebe')||{}).value || 'para' };
+  if(!base.nome && emails.length) base.nome = emails[0].split('@')[0];
+  if(!base.nome){ aviso('Informe o nome ou um e-mail.'); return; }
+  if(i==='novo'){
+    base.id='c'+uid(); D.cfg.contatos.push(base);
+    emails.slice(1).forEach(e=>{ D.cfg.contatos.push({ id:'c'+uid(), nome:e.split('@')[0], papel:base.papel, tel:'', email:e, recebe:base.recebe }); });
+  } else Object.assign(D.cfg.contatos[+i], base);
+  gravar(); fechaModal(); render();
+  aviso(emails.length>1 && i==='novo' ? emails.length+' contatos salvos' : 'Contato salvo');
 };
 ACOES.apagarContato = i => {
   D.cfg.contatos.splice(+i,1); gravar(); fechaModal(); render(); aviso('Contato apagado');
