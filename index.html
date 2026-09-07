@@ -1543,15 +1543,25 @@ ACOES.repetirUltimo = id => {
   const ult = D.pedidos.filter(p=>p.clienteId===id && VALE(p.status) && p.id!==ped.id).sort((a,b)=>b.data.localeCompare(a.data))[0];
   if(!ult){ aviso('Este cliente ainda não tem pedido fechado.'); return; }
   const aplica = () => {
-    let n = 0;
+    let n = 0, fora = 0;
     (ult.itens||[]).forEach(it=>{
       const pr = porId[it.skuId]; if(!pr) return;
       const ja = ped.itens.find(x=>x.skuId===it.skuId);
       if(ja){ ja.qtd = it.qtd; }
-      else ped.itens.push({ skuId:it.skuId, cod:pr.cod, nome:pr.nome, un:it.un, qtd:it.qtd, preco:precoDe(pr,it.un) });
+      else {
+        /* nasce no ultimo preco digitado (Willian: se vendeu mais caro, nao pode cair sem querer);
+           o que estiver fora da tabela de hoje fica marcado, e ele ve no card */
+        const tab = precoDe(pr,it.un);
+        const pv = (Number(it.preco)>0) ? Number(it.preco) : tab;
+        const novo = { skuId:it.skuId, cod:pr.cod, nome:pr.nome, un:it.un, qtd:it.qtd, preco:pv };
+        if(tab>0 && pv < tab-0.005){ novo.abaixoTabela = tab; fora++; }
+        if(tab>0 && pv > tab+0.005){ novo.acimaTabela = tab; fora++; }
+        ped.itens.push(novo);
+      }
       n++;
     });
-    gravar(); fechaModal(); render(); aviso('Repetido o pedido '+ult.num+': '+n+' itens, preço de tabela de hoje');
+    gravar(); fechaModal(); render();
+    aviso('Repetido o pedido '+ult.num+': '+n+' itens no último preço'+(fora?' · '+fora+' fora da tabela de hoje (marcados)':''));
   };
   if(ped.itens.length){ confirmar('Somar ao pedido atual?', 'Os '+ult.itens.length+' itens do pedido '+ult.num+' entram no que você já montou (quantidades iguais são substituídas).', 'Somar', 'bt-p', aplica); }
   else aplica();
@@ -3121,9 +3131,17 @@ function painelTabelas(){
   tabs.forEach(t=>{
     h += '<div class="cartao" style="margin-top:10px"><div class="corpo">'+
       '<div style="display:flex;align-items:center;gap:8px"><div style="flex:1"><div style="font-weight:800;font-size:calc(16px * var(--esc))">'+esc(t.nome)+'</div>'+
-      '<div class="peq">Contrato de '+nm(t.pct,1).replace(/,0$/,'')+'% · preço ÷ '+nm(1-t.pct/100,4)+' · arredonda para cima</div></div>'+
+      '<div class="peq">Contrato de '+nm(t.pct,1).replace(/,0$/,'')+'% · preço ÷ '+nm(1-t.pct/100,4)+' · arredonda para cima'+(t.detalhe?'<br>'+esc(t.detalhe):'')+'</div></div>'+
       '<button class="bt bt-l" style="min-height:36px;padding:0 12px" data-a="tbEditar" data-i="'+esc(t.id)+'">'+ico('editar')+'</button></div>'+
       '<div class="peq" style="margin-top:6px">Clientes com esta tabela: '+(D.clientes.filter(c=>c.tabelaId===t.id).length)+'</div>'+
+      /* a tabela que ele leva para a mesa: so nome, produtos e precos; nada de base, % ou contrato */
+      '<div class="linha-bt mt10">'+
+        '<button class="bt bt-d" data-a="tbCompartilhar" data-i="'+esc(t.id)+'">'+ico('subir')+'Compartilhar</button>'+
+        '<button class="bt bt-l" data-a="tbPDF" data-i="'+esc(t.id)+'">'+ico('doc')+'PDF</button>'+
+        '<button class="bt bt-l" data-a="tbXLSX" data-i="'+esc(t.id)+'">'+ico('baixar')+'Planilha</button>'+
+        '<button class="bt bt-l" data-a="tbCopiar" data-i="'+esc(t.id)+'">'+ico('copiar')+'Texto</button>'+
+      '</div>'+
+      '<div class="peq" style="margin-top:6px">O documento sai só com nome da tabela, produtos e preços. O cliente não vê base nem percentual.</div>'+
       '</div></div>';
   });
   if(tabs.length && CAT.length){
@@ -3148,8 +3166,10 @@ ACOES.tbEditar = id => {
   if(!t) return;
   modal(novo ? 'Nova tabela de contrato' : 'Editar tabela',
     '<div class="campo"><label>Nome</label><input type="text" id="tb_nome" value="'+esc(t.nome)+'" placeholder="Ex.: Rede Compre Bem — contrato 5%"></div>'+
-    '<div class="campo mb0"><label>Contrato (%) que o cliente desconta na nota</label><input type="text" inputmode="decimal" id="tb_pct" value="'+nm(t.pct,2).replace(/,00$/,'')+'"></div>'+
-    '<div class="dica" style="margin-top:8px">Exemplo: tabela R$ 10,00 com 5% vira R$ '+vlr(precoContrato(10, t.pct))+'.</div>',
+    '<div class="campo"><label>Contrato (%) que o cliente desconta na nota</label><input type="text" inputmode="decimal" id="tb_pct" value="'+nm(t.pct,2).replace(/,00$/,'')+'"></div>'+
+    '<div class="campo mb0"><label>Composição (só para você)</label><input type="text" id="tb_detalhe" value="'+esc(t.detalhe||'')+'" placeholder="Ex.: 3% logística + 2% comercial"></div>'+
+    '<div class="dica" style="margin-top:8px">Exemplo: tabela R$ 10,00 com 5% vira R$ '+vlr(precoContrato(10, t.pct))+'. '+
+    '<b>O nome sai no documento que você compartilha</b> — use um nome neutro (ex.: "Tabela Bramil Set/2026"), sem "contrato" nem "%". A composição não sai.</div>',
     '<div class="linha-bt">'+(novo?'':'<button class="bt bt-l" data-a="tbApagar" data-i="'+esc(t.id)+'" style="color:var(--terracota)">Apagar</button>')+
     '<button class="bt bt-p" data-a="tbSalvar" data-i="'+esc(novo?'novo':t.id)+'">Salvar</button></div>');
   setTimeout(()=>{ const n=el('tb_nome'); if(n) n.focus(); }, 150);
@@ -3158,10 +3178,100 @@ ACOES.tbSalvar = id => {
   const nome = (el('tb_nome')||{}).value || '', pct = pnum((el('tb_pct')||{}).value);
   if(!nome.trim()){ aviso('Dê um nome para a tabela.'); return; }
   if(!(pct>0 && pct<60)){ aviso('Contrato precisa ser um percentual entre 0 e 60.'); return; }
+  const detalhe = ((el('tb_detalhe')||{}).value || '').trim();
   if(!Array.isArray(D.cfg.tabelas)) D.cfg.tabelas = [];
-  if(id==='novo') D.cfg.tabelas.push({id:'t'+uid(), nome:nome.trim(), pct:pct});
-  else { const t = D.cfg.tabelas.find(x=>x.id===id); if(t){ t.nome = nome.trim(); t.pct = pct; } }
+  if(id==='novo') D.cfg.tabelas.push({id:'t'+uid(), nome:nome.trim(), pct:pct, detalhe:detalhe});
+  else { const t = D.cfg.tabelas.find(x=>x.id===id); if(t){ t.nome = nome.trim(); t.pct = pct; t.detalhe = detalhe; } }
   gravar(); fechaModal(); render(); aviso('Tabela salva');
+};
+/* ---- a tabela que vai para o cliente: nome, produtos, precos. Sem base, sem %, sem "contrato" ---- */
+function tbNomeSeguro(t){
+  if(/contrato|provis|%|infla|base/i.test(t.nome||'')){ aviso('O nome da tabela sai no documento. Troque para um nome neutro (ex.: "Tabela Bramil Set/2026").'); return false; }
+  return true;
+}
+function linhasTabela(t){
+  const L = CAT.slice().sort((a,b)=>(a.categoria||'').localeCompare(b.categoria||'','pt-BR') || a.nome.localeCompare(b.nome,'pt-BR'));
+  return L.map(p=>({ cod:String(p.cod||''), nome:p.nome, categoria:p.categoria||'', caixa:rotuloCaixa(p), canal:CANAL_NOME[p.canal]||'',
+    pCaixa: precoContrato(p.pCaixa||0, t.pct), pPacote: p.pPacote ? precoContrato(p.pPacote, t.pct) : 0 }));
+}
+function tbSlug(t){ return 'tabela-'+(sac(t.nome).replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'').slice(0,28)||'precos'); }
+function pdfDaTabela(t){
+  const A4L = 595.28, A4A = 841.89, M = 38;
+  const paginas = []; const recursos = {};
+  const mk = marcaAtual();
+  let pg, y;
+  const cab = () => {
+    pg = NovaPagina(A4L, A4A); paginas.push(pg); y = M;
+    const fim = pg.txt(M, y+16, (mk.logo1||mk.nome||'')+' ', {tam:20, negrito:true, cor:GRAFITE_PDF});
+    if(mk.logo2) pg.txt(fim, y+16, mk.logo2, {tam:20, negrito:true, cor:DOURADO_PDF});
+    pg.txt(M, y+29, 'Tabela de preços', {tam:8, cor:CINZA_PDF});
+    pg.txt(A4L-M, y+12, dbr(hoje()), {tam:9, cor:CINZA_PDF, align:'r'});
+    pg.txt(A4L-M, y+26, t.nome, {tam:10, negrito:true, cor:GRAFITE_PDF, align:'r'});
+    y += 40; pg.linha(M, y, A4L-M, y, 2, GRAFITE_PDF); y += 16;
+    pg.ret(M, y-11, A4L-2*M, 16, GRAFITE_PDF);
+    pg.txt(M+5, y, 'CÓD.', {tam:7.5, negrito:true, cor:CREME_PDF});
+    pg.txt(M+48, y, 'PRODUTO', {tam:7.5, negrito:true, cor:CREME_PDF});
+    pg.txt(A4L-M-150, y, 'CAIXA', {tam:7.5, negrito:true, cor:CREME_PDF});
+    pg.txt(A4L-M-58, y, 'R$ CAIXA', {tam:7.5, negrito:true, cor:CREME_PDF, align:'r'});
+    pg.txt(A4L-M-4, y, 'R$ PACOTE', {tam:7.5, negrito:true, cor:CREME_PDF, align:'r'});
+    y += 14;
+  };
+  cab();
+  let cat = null, zebra = 0;
+  linhasTabela(t).forEach(l=>{
+    if(y > A4A - M - 30) cab();
+    if(l.categoria !== cat){
+      cat = l.categoria;
+      if(y > A4A - M - 44) cab();
+      y += 4; pg.txt(M, y, cat.toUpperCase(), {tam:7.5, negrito:true, cor:CINZA_PDF}); y += 12;
+    }
+    const nomeL = quebrarLinhas(l.nome, A4L-M-150-(M+48)-8, 8.5, false);
+    const alt = Math.max(1, nomeL.length)*10 + 5;
+    if(zebra%2===0) pg.ret(M, y-8, A4L-2*M, alt, CREME_PDF);
+    pg.txt(M+5, y, l.cod, {tam:8, cor:GRAFITE_PDF});
+    nomeL.forEach((ln,k)=>pg.txt(M+48, y+k*10, ln, {tam:8.5, negrito:k===0, cor:GRAFITE_PDF}));
+    pg.txt(A4L-M-150, y, l.caixa, {tam:7.5, cor:CINZA_PDF});
+    pg.txt(A4L-M-58, y, brl(l.pCaixa), {tam:8.5, negrito:true, cor:GRAFITE_PDF, align:'r'});
+    if(l.pPacote) pg.txt(A4L-M-4, y, brl(l.pPacote), {tam:8.5, cor:GRAFITE_PDF, align:'r'});
+    y += alt; zebra++;
+  });
+  y += 14; pg.linha(M, y, A4L-M, y, 0.5, LINHA_PDF); y += 14;
+  const rep = [D.cfg.repNome, D.cfg.repTel?telBonito(D.cfg.repTel):'', D.cfg.repEmail].filter(Boolean).join('  ·  ');
+  pg.txt(M, y, 'Representante: '+rep+'  ·  Preços por caixa fechada, sujeitos a confirmação no pedido.', {tam:8, cor:CINZA_PDF});
+  return montarPdf(paginas, recursos);
+}
+function xlsxDaTabela(t){
+  const L = [[{v:'Tabela de preços — '+t.nome, s:'titulo'}], [{v:nomeMarca()+' · '+dbr(hoje()), s:'cinza'}], []];
+  L.push(['Código','Produto','Categoria','Caixa','Canal','R$ caixa','R$ pacote'].map(v=>({v,s:'negrito'})));
+  linhasTabela(t).forEach(l=>L.push([l.cod, l.nome, l.categoria, l.caixa, l.canal, {v:l.pCaixa,s:'moeda'}, l.pPacote?{v:l.pPacote,s:'moeda'}:'']));
+  return xlsxDe('Tabela', L, [10, 44, 18, 20, 12, 12, 12]);
+}
+function textoTabela(t){
+  const L = ['TABELA DE PREÇOS — '+t.nome+' — '+nomeMarca(), dbr(hoje()), _REGUA];
+  let cat = null;
+  linhasTabela(t).forEach(l=>{ if(l.categoria!==cat){ cat=l.categoria; L.push('', cat.toUpperCase()); } L.push(l.cod+' — '+l.nome+' — '+brl(l.pCaixa)+' cx'+(l.pPacote?' ('+brl(l.pPacote)+' pct)':'')); });
+  L.push('', 'Preços por caixa fechada. '+[D.cfg.repNome, D.cfg.repTel?telBonito(D.cfg.repTel):''].filter(Boolean).join(' · '));
+  return L.join('\n');
+}
+const tbDe = id => (D.cfg.tabelas||[]).find(x=>x.id===id);
+ACOES.tbPDF    = id => { const t=tbDe(id); if(!t || !tbNomeSeguro(t)) return; if(!CAT.length){ aviso('Sem tabela de preços neste aparelho.'); return; } baixar(tbSlug(t)+'.pdf', pdfDaTabela(t), 'application/pdf'); };
+ACOES.tbXLSX   = id => { const t=tbDe(id); if(!t || !tbNomeSeguro(t)) return; if(!CAT.length){ aviso('Sem tabela de preços neste aparelho.'); return; } baixar(tbSlug(t)+'.xlsx', xlsxDaTabela(t), TIPO_XLSX); };
+ACOES.tbCopiar = id => { const t=tbDe(id); if(!t || !tbNomeSeguro(t)) return; copiar(textoTabela(t)); };
+ACOES.tbCompartilhar = async id => {
+  const t=tbDe(id); if(!t || !tbNomeSeguro(t)) return;
+  if(!CAT.length){ aviso('Sem tabela de preços neste aparelho.'); return; }
+  let arq;
+  try{ arq = new File([pdfDaTabela(t)], tbSlug(t)+'.pdf', {type:'application/pdf'}); }catch(e){ aviso('Não consegui montar o PDF.'); return; }
+  try{
+    if(navigator.canShare && navigator.canShare({files:[arq]})){
+      await navigator.share({ files:[arq], title:'Tabela de preços — '+t.nome, text:'Segue a tabela de preços '+t.nome+' ('+nomeMarca()+'), '+dbr(hoje())+'. Preços por caixa fechada.' });
+      return;
+    }
+  }catch(e){ if(e && e.name==='AbortError') return; }
+  modal('Compartilhar a tabela',
+    '<div class="peq" style="margin-bottom:10px">Este navegador não abre a folha de compartilhar. Salve o arquivo e anexe você mesmo.</div>',
+    '<div class="linha-bt"><button class="bt bt-l" data-a="tbPDF" data-i="'+esc(id)+'">Salvar PDF</button>'+
+    '<button class="bt bt-l" data-a="tbXLSX" data-i="'+esc(id)+'">Salvar planilha</button></div>');
 };
 ACOES.tbApagar = id => {
   D.cfg.tabelas = (D.cfg.tabelas||[]).filter(x=>x.id!==id);
