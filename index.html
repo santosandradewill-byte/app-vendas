@@ -269,6 +269,9 @@ button.et-rede{cursor:pointer}
   border-bottom:1px dashed var(--linha2);padding-bottom:1px}
 .item .dir{text-align:right;display:flex;flex-direction:column;align-items:flex-end;gap:7px}
 .item .tot{font-size:calc(14.5px * var(--esc));font-weight:750;font-variant-numeric:tabular-nums;white-space:nowrap}
+.preco-cx{display:flex;align-items:center;gap:6px;width:100%;margin-top:8px;padding:8px 10px;border-radius:9px;
+  background:var(--creme2);color:var(--grafite2);font-size:calc(12.5px * var(--esc));font-weight:600;text-align:left}
+.preco-cx svg{width:14px;height:14px}
 .passo{display:flex;align-items:center;border:1px solid var(--linha2);border-radius:9px;
   overflow:hidden;background:var(--branco)}
 .passo button{width:38px;height:38px;display:flex;align-items:center;justify-content:center;
@@ -483,6 +486,15 @@ html[data-tema="escuro"] #abas button.on::before{background:var(--dourado);
   box-shadow:0 0 12px rgba(255,192,46,.75)}
 html[data-tema="escuro"] #abas .selo{background:#CE2027;color:#fff}
 html[data-tema="escuro"] #rodape{background:var(--branco)}
+/* contador de caixas no card do produto: no tema escuro ficava apagado (escuro sobre escuro) */
+html[data-tema="escuro"] .passo{border-color:rgba(255,255,255,.38)}
+html[data-tema="escuro"] .passo.escuro{border-color:rgba(255,255,255,.55);background:#2A3145}
+html[data-tema="escuro"] .passo.escuro button{color:#FFFFFF}
+html[data-tema="escuro"] .passo.escuro button:active{background:#3A4360}
+html[data-tema="escuro"] .passo.escuro input{background:#2A3145;color:#FFFFFF;font-weight:800;border-color:rgba(255,255,255,.35)}
+html[data-tema="escuro"] .passo.escuro input:focus{background:#3A4360}
+html[data-tema="escuro"] .no-pedido .soma .q{color:#C9CFDD}
+html[data-tema="escuro"] .no-pedido .soma .v{color:#FFFFFF}
 /* botoes: o dourado vira o sinal de acao principal */
 html[data-tema="escuro"] .bt-p{background:var(--forte);color:var(--forte-tx)}
 html[data-tema="escuro"] .bt-d{background:var(--forte);color:var(--forte-tx)}
@@ -641,6 +653,7 @@ const CFG_PADRAO = {
   condPadrao:'28 dias',
   prefixo:'REP-',          /* o numero do representante nunca parece numero de compra do cliente */
   copiaRep:false,          /* copia oculta dos e-mails para o e-mail do representante */
+  tabelas:[],              /* tabelas por contrato (simulacao): {id, nome, pct} -> preco = tabela / (1 - pct) */
   pin:'',                  /* PIN de 4 numeros ao abrir (guardado embaralhado); vazio = sem bloqueio */
   pinMinutos:-1,           /* -1 = so pede ao abrir o app (padrao, mais simples); 0 = sempre que voltar; N = minutos fora */
   letra:'p',
@@ -1051,7 +1064,11 @@ function cartaoProduto(p, ped){
         '</div>'+
         '<div class="soma"><span class="q">'+nm(it.qtd)+(it.qtd===1?' caixa':' caixas')+'</span>'+
           '<span class="v">'+brl((it.preco||0)*(it.qtd||0))+'</span></div>'+
-      '</div>'
+      '</div>'+
+      /* preco da caixa a vista, com o botao de mudar: o pedido nasce na tabela; mudou, avisa */
+      '<button class="pr preco-cx" data-a="editarPreco" data-i="'+idx+'">'+ico('editar')+brl(it.preco)+' a caixa · '+
+        (it.abaixoTabela ? '<b style="color:var(--terracota)">abaixo da tabela</b>' :
+         it.acimaTabela  ? '<b style="color:var(--verde)">acima da tabela</b>' : 'preço de tabela')+' · alterar</button>'
     : '<button class="add add-cx" data-a="add" data-i="'+p.id+'" data-v="CX">'+
         ico('mais')+'<span class="u">ADICIONAR CAIXA</span>'+
         '<span class="v">'+brl(p.pCaixa)+'</span></button>';
@@ -1681,6 +1698,7 @@ ACOES.editarPreco = i => {
       '<button class="chip" data-a="porPreco" data-v="'+(Math.round(tab*1.05*100)/100)+'">+5%</button>'+
       '<button class="chip" data-a="porPreco" data-v="'+(Math.round(tab*1.10*100)/100)+'">+10%</button>'+
       '<button class="chip" data-a="porPreco" data-v="'+(Math.round(tab*1.15*100)/100)+'">+15%</button>'+
+      (function(){ const tb = tabelaDoCliente(clienteDe(ped)); return tb ? '<button class="chip" style="border-color:var(--dourado)" data-a="porPreco" data-v="'+precoContrato(tab, tb.pct)+'">Contrato '+nm(tb.pct,1).replace(/,0$/,'')+'% → '+brl(precoContrato(tab, tb.pct))+'</button>' : ''; })()+
     '</div>'+
     '<div class="peq" style="margin-top:8px">Vale só neste pedido. A tabela oficial não muda, '+
     'e você volta para ela com um toque.</div>'+
@@ -1714,7 +1732,26 @@ ACOES.salvarPreco = i => {
   const v = pnum(el('np').value);
   if(v<=0){ aviso('Informe um preço maior que zero.'); return; }
   const tab = precoDe(porId[it.skuId], it.un);
-  const aplica = () => { it.preco = v; it.abaixoTabela = (tab>0 && v < tab - 0.005) ? tab : undefined; gravar(); fechaModal(); pintaItens(); };
+  const aplica = () => {
+    it.preco = v;
+    it.abaixoTabela = (tab>0 && v < tab - 0.005) ? tab : undefined;
+    it.acimaTabela  = (tab>0 && v > tab + 0.005) ? tab : undefined;
+    gravar(); fechaModal(); pintaItens(); pintaResultados();
+  };
+  /* acima da tabela tambem pergunta: o pedido nasce na tabela e qualquer mudanca e consciente */
+  if(tab>0 && v > tab + 0.005){
+    const pct = (v-tab)/tab*100;
+    modal('Vender acima da tabela?',
+      '<div style="font-size:calc(15px * var(--esc));font-weight:650;margin-bottom:6px">'+esc(it.nome)+'</div>'+
+      '<table class="tabelinha"><tr><td>Tabela</td><td>'+brl(tab)+'</td></tr>'+
+      '<tr><td>Você digitou</td><td class="v-verde">'+brl(v)+'</td></tr>'+
+      '<tr><td>Diferença</td><td class="v-verde">+ '+brl(v-tab)+' por caixa · +'+nm(pct,1)+'%</td></tr></table>'+
+      '<div class="aviso mt10">'+ico('alerta')+'<span>Vale só neste pedido e fica marcado no item como acima da tabela. Confirme se foi combinado com o cliente (contrato, frete, prazo).</span></div>',
+      '<div class="linha-bt"><button class="bt bt-l" data-a="editarPreco" data-i="'+i+'">Voltar</button>'+
+      '<button class="bt bt-v" data-a="confAbaixo">Sim, vender a '+brl(v)+'</button></div>');
+    ACOES.confAbaixo = aplica;
+    return;
+  }
   /* abaixo da tabela pode — mas nunca por engano: pergunta antes, mostrando a diferença */
   if(tab>0 && v < tab - 0.005){
     const pct = (tab-v)/tab*100;
@@ -2586,6 +2623,7 @@ function telaCliente(){
     '<hr>'+
     '<table class="tabelinha">'+
       (c.cod?'<tr><td>Seu código</td><td>'+esc(c.cod)+'</td></tr>':'')+
+      (function(){ const t=tabelaDoCliente(c); return t?'<tr><td>Tabela de preço</td><td>'+esc(t.nome)+' · contrato '+nm(t.pct,1).replace(/,0$/,'')+'% (simulação)</td></tr>':''; })()+
       (c.codIndustria?'<tr><td>Código na indústria</td><td>'+esc(c.codIndustria)+'</td></tr>':'')+
       (c.rede?'<tr><td>Rede</td><td>'+esc(c.rede)+'</td></tr>':'')+
       (c.loja?'<tr><td>Loja</td><td>'+esc(c.loja)+'</td></tr>':'')+
@@ -2694,6 +2732,10 @@ function telaFormCliente(){
       'placeholder="Padaria, supermercado, lanchonete...">'+
       '<div class="dica">O <b>Canal</b> decide a tabela de preço (Varejo ou Food Service). O tipo é para você '+
       'saber quem é quem — e o Painel soma a venda por tipo. Toque para ver a lista ou escreva outro.</div></div>'+
+    '<div class="campo mb0" style="margin-top:14px"><label>Tabela de preço</label><select id="f_tabela">'+
+      '<option value="">Tabela oficial</option>'+
+      (D.cfg.tabelas||[]).map(t=>'<option value="'+esc(t.id)+'"'+((c.tabelaId||'')===t.id?' selected':'')+'>'+esc(t.nome)+' ('+nm(t.pct,1).replace(/,0$/,'')+'% de contrato)</option>').join('')+
+    '</select><div class="dica">Por enquanto é simulação: o pedido continua na tabela oficial e o preço com contrato aparece como opção ao mudar o preço do item. Crie tabelas em Margem › Tabelas e contratos.</div></div>'+
   '</div></div>';
 
   h += '<div class="secao">Códigos</div><div class="cartao"><div class="corpo">'+
@@ -2778,7 +2820,7 @@ ACOES.salvarCliente = id => {
     cep:soN(g('cep')), endereco:g('endereco'), referencia:g('referencia'), bairro:g('bairro'),
     cidade:g('cidade'), cond:g('cond'), obs:g('obs'),
     emailXml:g('emailXml'), emailFin:g('emailFin'), codIndustria:g('codIndustria'), agendamento:g('agendamento'),
-    segmento:g('segmento')
+    segmento:g('segmento'), tabelaId:(el('f_tabela')||{}).value || ''
   };
   /* CNPJ e unico: dois cadastros para o mesmo CNPJ viram dois clientes no painel e na industria */
   if(dados.cnpj){
@@ -3051,7 +3093,83 @@ const VISTAS_PAINEL = [
    margem  = lucro / venda        (sobre o preço de venda)
    markup  = lucro / custo        (sobre o custo)
    ===================================================== */
-const MG = { modo:'custo', ultimo:'custo', custo:10, venda:14.29, margem:30, rotulo:'', opcoes:null, voltarPedido:false, modal:false, item:null, busca:'' };
+/* =====================================================
+   TABELAS E CONTRATOS (simulação)
+   Cliente pede contrato de X% sobre a nota. Para o representante continuar
+   recebendo o mesmo, a tabela dele sobe: preço ÷ (1 - X%), arredondado
+   PARA CIMA no centavo. Ex.: 10,00 com 5% -> 10 / 0,95 = 10,5263 -> 10,53.
+   ===================================================== */
+function precoContrato(preco, pct){
+  const p = Number(preco)||0, c = Number(pct)||0;
+  if(c<=0 || c>=100) return Math.round(p*100)/100;
+  return Math.ceil(p/(1-c/100)*100 - 1e-9)/100;
+}
+function tabelaDoCliente(cli){
+  if(!cli || !cli.tabelaId || !Array.isArray(D.cfg.tabelas)) return null;
+  return D.cfg.tabelas.find(t=>t.id===cli.tabelaId) || null;
+}
+let TB_BUSCA = '';
+function painelTabelas(){
+  const tabs = Array.isArray(D.cfg.tabelas) ? D.cfg.tabelas : [];
+  let h = '<div class="cartao"><div class="corpo"><div class="peq">'+
+    'Simulação de <b>tabela por contrato</b>. O cliente pede um contrato de X% sobre a nota; para você '+
+    'continuar recebendo o mesmo valor, o preço dele sobe: <b>tabela ÷ (1 − X%)</b>, arredondado para cima no centavo. '+
+    'Ex.: R$ 10,00 com 5% → 10 ÷ 0,95 = 10,5263 → <b>R$ 10,53</b>. '+
+    'Por enquanto não muda o pedido: serve para conferir e para marcar no cadastro do cliente.</div></div></div>';
+  h += '<button class="bt bt-p bt-bloco" data-a="tbNova">'+ico('mais')+'Nova tabela de contrato</button>';
+  if(!tabs.length) h += '<div class="peq" style="margin:8px 3px 12px">Nenhuma tabela criada. Crie uma com o percentual do contrato.</div>';
+  tabs.forEach(t=>{
+    h += '<div class="cartao" style="margin-top:10px"><div class="corpo">'+
+      '<div style="display:flex;align-items:center;gap:8px"><div style="flex:1"><div style="font-weight:800;font-size:calc(16px * var(--esc))">'+esc(t.nome)+'</div>'+
+      '<div class="peq">Contrato de '+nm(t.pct,1).replace(/,0$/,'')+'% · preço ÷ '+nm(1-t.pct/100,4)+' · arredonda para cima</div></div>'+
+      '<button class="bt bt-l" style="min-height:36px;padding:0 12px" data-a="tbEditar" data-i="'+esc(t.id)+'">'+ico('editar')+'</button></div>'+
+      '<div class="peq" style="margin-top:6px">Clientes com esta tabela: '+(D.clientes.filter(c=>c.tabelaId===t.id).length)+'</div>'+
+      '</div></div>';
+  });
+  if(tabs.length && CAT.length){
+    const q = sac(TB_BUSCA).trim();
+    const lista = CAT.filter(p=>!q || (p.busca||sac(p.nome+' '+p.cod)).indexOf(q)>-1).slice(0, q?12:8);
+    h += '<div class="secao" style="margin-top:14px">Comparar preços</div><div class="cartao"><div class="corpo">'+
+      '<div class="busca" style="margin-bottom:8px">'+ico('busca')+'<input type="text" placeholder="Buscar produto ou código" value="'+esc(TB_BUSCA)+'" data-in="tbBusca" autocomplete="off"></div>'+
+      '<div style="overflow-x:auto"><table class="tabelinha" style="min-width:100%"><tr><td style="width:auto"><b>Produto</b></td><td style="text-align:right"><b>Tabela</b></td>'+
+      tabs.map(t=>'<td style="text-align:right"><b>'+esc(t.nome)+'</b></td>').join('')+'</tr>'+
+      lista.map(p=>'<tr><td style="color:var(--grafite)">'+esc(p.nome)+'<br><span class="peq">'+esc(p.cod)+' · cx</span></td><td style="text-align:right;white-space:nowrap">'+brl(p.pCaixa)+'</td>'+
+        tabs.map(t=>'<td style="text-align:right;white-space:nowrap;font-weight:700">'+brl(precoContrato(p.pCaixa, t.pct))+'</td>').join('')+'</tr>').join('')+
+      '</table></div><div class="peq" style="margin-top:8px">Preço por caixa. Mostrando '+lista.length+' de '+CAT.length+' produtos'+(q?'':' (busque para ver outros)')+'.</div>'+
+      '</div></div>';
+  }
+  return h;
+}
+ENTRADAS.tbBusca = v => { TB_BUSCA = v; render(); const i=document.querySelector('[data-in="tbBusca"]'); if(i){ i.focus(); i.setSelectionRange(v.length,v.length); } };
+ACOES.tbNova = () => ACOES.tbEditar('novo');
+ACOES.tbEditar = id => {
+  const novo = id==='novo';
+  const t = novo ? {id:'t'+uid(), nome:'', pct:5} : (D.cfg.tabelas||[]).find(x=>x.id===id);
+  if(!t) return;
+  modal(novo ? 'Nova tabela de contrato' : 'Editar tabela',
+    '<div class="campo"><label>Nome</label><input type="text" id="tb_nome" value="'+esc(t.nome)+'" placeholder="Ex.: Rede Compre Bem — contrato 5%"></div>'+
+    '<div class="campo mb0"><label>Contrato (%) que o cliente desconta na nota</label><input type="text" inputmode="decimal" id="tb_pct" value="'+nm(t.pct,2).replace(/,00$/,'')+'"></div>'+
+    '<div class="dica" style="margin-top:8px">Exemplo: tabela R$ 10,00 com 5% vira R$ '+vlr(precoContrato(10, t.pct))+'.</div>',
+    '<div class="linha-bt">'+(novo?'':'<button class="bt bt-l" data-a="tbApagar" data-i="'+esc(t.id)+'" style="color:var(--terracota)">Apagar</button>')+
+    '<button class="bt bt-p" data-a="tbSalvar" data-i="'+esc(novo?'novo':t.id)+'">Salvar</button></div>');
+  setTimeout(()=>{ const n=el('tb_nome'); if(n) n.focus(); }, 150);
+};
+ACOES.tbSalvar = id => {
+  const nome = (el('tb_nome')||{}).value || '', pct = pnum((el('tb_pct')||{}).value);
+  if(!nome.trim()){ aviso('Dê um nome para a tabela.'); return; }
+  if(!(pct>0 && pct<60)){ aviso('Contrato precisa ser um percentual entre 0 e 60.'); return; }
+  if(!Array.isArray(D.cfg.tabelas)) D.cfg.tabelas = [];
+  if(id==='novo') D.cfg.tabelas.push({id:'t'+uid(), nome:nome.trim(), pct:pct});
+  else { const t = D.cfg.tabelas.find(x=>x.id===id); if(t){ t.nome = nome.trim(); t.pct = pct; } }
+  gravar(); fechaModal(); render(); aviso('Tabela salva');
+};
+ACOES.tbApagar = id => {
+  D.cfg.tabelas = (D.cfg.tabelas||[]).filter(x=>x.id!==id);
+  D.clientes.forEach(c=>{ if(c.tabelaId===id) c.tabelaId=''; });
+  gravar(); fechaModal(); render(); aviso('Tabela apagada');
+};
+
+const MG = { vista:'margem', modo:'custo', ultimo:'custo', custo:10, venda:14.29, margem:30, rotulo:'', opcoes:null, voltarPedido:false, modal:false, item:null, busca:'' };
 /* dois caminhos: 'custo' (custo + margem -> preço de venda) ou 'venda' (preço de venda + margem -> custo) */
 function mgCalc(){
   const m = Math.min(Math.max(Number(MG.margem)||0, -900), 99.99);
@@ -3079,7 +3197,14 @@ function mgListaHTML(){
     '<span class="et '+(p.canal==='VAREJO'?'et-vrj':'et-fs')+'">'+CANAL_NOME[p.canal]+'</span></span></span>'+
     '<span class="dir"><span class="val">'+brl(p.pCaixa)+'</span></span></button>').join('');
 }
+function chipsVistaMargem(){
+  return '<div class="chips" style="padding-bottom:8px">'+
+    '<button class="chip '+(MG.vista!=='tabelas'?'on':'')+'" data-a="mgVista" data-i="margem">Margem do cliente</button>'+
+    '<button class="chip '+(MG.vista==='tabelas'?'on':'')+'" data-a="mgVista" data-i="tabelas">Tabelas e contratos</button></div>';
+}
+ACOES.mgVista = v => { MG.vista = v==='tabelas' ? 'tabelas' : 'margem'; window.scrollTo(0,0); render(); };
 function painelMargem(){
+  if(!MG.modal && MG.vista==='tabelas') return chipsVistaMargem() + painelTabelas();
   const r = mgCalc(); const pv = MG.modo==='venda';
   /* ao tocar, o campo ja seleciona o numero: e so digitar por cima */
   const linha = (id, rot, un, cor) =>
@@ -3096,7 +3221,7 @@ function painelMargem(){
   const un  = { custo:'R$', venda:'R$', lucro:'R$', margem:'%', markup:'%' };
   const cor = { custo: pv?'var(--verde)':'', venda: pv?'':'var(--verde)', margem:'var(--dourado)', markup:'var(--verde)', lucro:'var(--verde)' };
 
-  let h = '<div class="chips" style="padding-bottom:8px">'+
+  let h = (MG.modal ? '' : chipsVistaMargem()) + '<div class="chips" style="padding-bottom:8px">'+
     '<button class="chip '+(!pv?'on':'')+'" data-a="mgModo" data-i="custo">Travar o custo</button>'+
     '<button class="chip '+(pv?'on':'')+'" data-a="mgModo" data-i="venda">Travar o preço de venda</button></div>';
   h += '<div class="cartao"><div class="corpo">'+
