@@ -2339,7 +2339,11 @@ ACOES.confirmarEnvio = id => {
   gravar(); fechaModal(); render();
   aviso('Pedido '+p.num+' marcado como Enviado');
 };
+const EH_IOS = /iPhone|iPad|iPod/i.test(navigator.userAgent) || (navigator.platform==='MacIntel' && navigator.maxTouchPoints>1);
 function abrir(url){
+  /* no iPhone o clique programatico com _blank e barrado como pop-up; mailto: e wa.me abrem
+     o app certo pela propria aba, e o navegador volta sozinho */
+  if(EH_IOS || /^mailto:/i.test(url)){ location.href = url; return; }
   const a = document.createElement('a');
   a.href = url; a.target='_blank'; a.rel='noopener';
   document.body.appendChild(a); a.click(); a.remove();
@@ -3869,6 +3873,10 @@ function telaAjustes(){
       '<button class="bt bt-l" data-a="gmailConectar">'+ico('email')+(GM?'Reconectar':'Conectar agora')+'</button>'+
       (GM?'<button class="bt bt-l" data-a="gmailDesconectar">Desconectar</button>':'')+
     '</div>'+
+    (function(){ const dbg = lerJSON('harus.gmail.debug', null); if(!dbg) return '';
+      return '<div class="peq" style="margin-top:10px;word-break:break-word"><b>Última volta do Google:</b> '+esc(dbg.resultado||'')+
+        (dbg.erro?' · erro '+esc(dbg.erro):'')+(dbg.stateOk===false?' · state diferente':'')+(dbg.gravou===false?' · <b>não gravou no aparelho</b>':'')+
+        (dbg.quando?' · '+esc(horaCurta(dbg.quando)):'')+(dbg.url?'<br>'+esc(dbg.url):'')+'</div>'; })()+
     '<button class="bt bt-l bt-bloco mt10" data-a="gmailCopia">'+(cfg.copiaRep?ico('check')+'Cópia oculta para mim: ligada':'Cópia oculta para mim: desligada')+'</button>'+
     '<div class="dica">A cópia oculta vai para o seu e-mail de Ajustes › Seus dados'+(cfg.repEmail?' ('+esc(cfg.repEmail)+')':' (preencha o e-mail acima)')+'.</div>'+
   '</div></div>';
@@ -6446,24 +6454,33 @@ function gmailPedirAcesso(pendente){
   try{ localStorage.setItem('harus.gmail.pendente', JSON.stringify(pendente||{})); }catch(x){}
   const st = 'g'+Math.random().toString(36).slice(2);
   try{ localStorage.setItem('harus.gmail.state', st); }catch(x){}
-  const hint = (GM && GM.email) || (SESSAO && SESSAO.email) || '';
+  /* sem login_hint: o e-mail da nuvem pode nao ser a conta Google do aparelho (foi o caso no
+     teste do Willian) e o Google ficava pedindo a senha de outra pessoa. Ele escolhe a conta. */
   location.href = 'https://accounts.google.com/o/oauth2/v2/auth?client_id='+e(GMAIL_CLIENT_ID)+
     '&redirect_uri='+e(gmailRedirect())+'&response_type=token&scope='+e(GMAIL_ESCOPO)+
-    '&include_granted_scopes=true&state='+st+(hint?'&login_hint='+e(hint):'');
+    '&include_granted_scopes=true&prompt=select_account&state='+st;
 }
 /* na volta do Google: guarda o token e retoma o que estava fazendo */
+function gmailDebug(o){ try{ o.quando = new Date().toISOString(); o.ua = navigator.userAgent.slice(0,80); localStorage.setItem('harus.gmail.debug', JSON.stringify(o)); }catch(e){} }
 function gmailRetorno(){
   const h = location.hash || '';
-  if(!/access_token=|error=/.test(h)) return;
+  let pend = null; try{ pend = JSON.parse(localStorage.getItem('harus.gmail.pendente')||'null'); }catch(e){}
+  if(!/access_token=|error=/.test(h)){
+    /* saiu para o Google mas voltou sem nada: registra para o diagnostico em Ajustes */
+    if(pend){ localStorage.removeItem('harus.gmail.pendente'); gmailDebug({resultado:'voltou sem token', hash:h.slice(0,40), url:location.href.slice(0,120)});
+      setTimeout(()=>aviso('Voltou do Google sem a permissão. Veja Ajustes › E-mail direto.'), 800); }
+    return;
+  }
   const p = new URLSearchParams(h.slice(1));
   try{ history.replaceState(null, '', location.pathname + location.search); }catch(e){}
-  let pend = null; try{ pend = JSON.parse(localStorage.getItem('harus.gmail.pendente')||'null'); localStorage.removeItem('harus.gmail.pendente'); }catch(e){}
+  try{ localStorage.removeItem('harus.gmail.pendente'); }catch(e){}
   const st = localStorage.getItem('harus.gmail.state'); localStorage.removeItem('harus.gmail.state');
-  if(p.get('error')){ setTimeout(()=>aviso('O Google não liberou o envio: '+p.get('error')), 600); return; }
-  if(st && p.get('state') && p.get('state')!==st) return;
+  if(p.get('error')){ gmailDebug({resultado:'erro do Google', erro:p.get('error')}); setTimeout(()=>aviso('O Google não liberou o envio: '+p.get('error')), 600); return; }
+  const stateOk = !st || !p.get('state') || p.get('state')===st;
   GM = { token:p.get('access_token'), exp: Date.now() + (parseInt(p.get('expires_in')||'3600',10)-30)*1000,
          desde: (GM&&GM.desde)||new Date().toISOString() };
-  try{ localStorage.setItem(K_GMAIL, JSON.stringify(GM)); }catch(e){}
+  let gravou = false; try{ localStorage.setItem(K_GMAIL, JSON.stringify(GM)); gravou = !!localStorage.getItem(K_GMAIL); }catch(e){}
+  gmailDebug({resultado:'token recebido', stateOk:stateOk, gravou:gravou, expiraEm:p.get('expires_in'), tinhaPendente:!!pend, url:location.href.slice(0,120)});
   if(pend && pend.pedidoId){
     TRAVADO = false;   /* ele acabou de sair do app para o Google; nao faz sentido pedir o PIN agora */
     setTimeout(()=>{ if(precisaEntrar()) return; ACOES.irEnviar(pend.pedidoId); ACOES.gmailEnviar(pend.pedidoId, pend.variante); }, 400);
@@ -6537,7 +6554,7 @@ ACOES.gmailEnviar = (id, variante) => {
   if(!gmailToken()){
     modal('Conectar o Gmail',
       '<p style="margin:2px 0 10px;font-size:calc(14.5px * var(--esc));line-height:1.5">Para mandar o pedido direto por e-mail, o app precisa da sua permissão no Google. '+
-      'É uma vez só neste aparelho: vai abrir a tela do Google, você escolhe a conta <b>'+esc((SESSAO&&SESSAO.email)||'')+'</b> e toca em <b>Permitir</b>. Depois o app volta sozinho e continua o envio.</p>'+
+      'É uma vez só neste aparelho: vai abrir a tela do Google, você escolhe a <b>sua conta do Gmail</b>, toca em <b>Continuar</b> no aviso de app em teste e em <b>Continuar</b> para permitir. Depois o app volta sozinho e continua o envio.</p>'+
       '<div class="peq">Permissão pedida: só "enviar e-mail em seu nome". O app não lê a sua caixa.</div>',
       '<button class="bt bt-p bt-bloco" data-a="gmailAutorizar" data-i="'+esc(id)+'" data-v="'+(paraCliente?'cliente':'industria')+'">Abrir o Google e permitir</button>'+
       '<button class="bt bt-t bt-bloco mt10" data-a="fechaModal">Agora não</button>');
