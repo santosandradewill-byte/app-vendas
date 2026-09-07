@@ -1018,15 +1018,20 @@ function produtosFiltrados(ped){
     if(fCat && p.categoria !== fCat) return false;
     if(!termos.length) return true;
     return termos.every(t=>p.busca.indexOf(t)>-1);
-  }).sort((a,b)=>
-    ordemMarca(a) - ordemMarca(b) ||
-    a.categoria.localeCompare(b.categoria,'pt-BR') ||
-    a.nome.localeCompare(b.nome,'pt-BR') ||
-    (a.caixa==='GRANDE'?0:1)-(b.caixa==='GRANDE'?0:1)
-  );
+  }).sort(compararProdutos);
 }
 /* a lista nunca mistura marcas: Harus inteira, depois PP inteira */
 function ordemMarca(p){ const m = String(p.marca||'').toUpperCase(); return m==='HARUS' ? 0 : m==='PP' ? 1 : 2; }
+function ordemCanal(p){ return p.canal==='VAREJO' ? 0 : p.canal==='FOODSERVICE' ? 1 : 2; }
+/* a mesma ordem em tudo: lista do pedido, PDF, planilha e texto da tabela */
+function compararProdutos(a,b){
+  return ordemMarca(a) - ordemMarca(b) ||
+    ordemCanal(a) - ordemCanal(b) ||
+    (a.categoria||'').localeCompare(b.categoria||'','pt-BR') ||
+    a.nome.localeCompare(b.nome,'pt-BR') ||
+    (a.caixa==='GRANDE'?0:1)-(b.caixa==='GRANDE'?0:1);
+}
+function rotuloGrupo(p){ return String(p.marca||'').toUpperCase()+' · '+(CANAL_NOME[p.canal]||'').toUpperCase(); }
 
 /* O que ESTE cliente ja comprou, por SKU: ultima data, preco e quantidade.
    Recalcula so quando muda o cliente. */
@@ -1132,8 +1137,15 @@ function listaProdutos(ped){
       '<span>Tente parte do nome ou o código do produto. '+
       'O filtro está em '+(canalAtivo(ped)==='TODOS'?'todos os canais':CANAL_NOME[canalAtivo(ped)])+'.</span></div>';
   }
-  let h='', catAtual=null;
+  let h='', catAtual=null, grupoAtual=null;
+  const mostraGrupo = canalAtivo(ped)==='TODOS' || CAT.some(x=>ordemMarca(x)!==ordemMarca(ps[0]));
   ps.forEach(p=>{
+    const g = rotuloGrupo(p);
+    if(mostraGrupo && g!==grupoAtual){
+      grupoAtual = g; catAtual = null;
+      h += '<div style="padding:10px 13px;background:var(--grafite);color:var(--creme);font-size:calc(11.5px * var(--esc));'+
+           'font-weight:800;letter-spacing:.8px;text-transform:uppercase">'+esc(g)+'</div>';
+    }
     if(p.categoria!==catAtual){
       catAtual = p.categoria;
       h += '<div style="padding:9px 13px;background:var(--creme2);font-size:calc(11px * var(--esc));'+
@@ -3201,8 +3213,8 @@ function tbNomeSeguro(t){
   return true;
 }
 function linhasTabela(t){
-  const L = CAT.slice().sort((a,b)=>(a.categoria||'').localeCompare(b.categoria||'','pt-BR') || a.nome.localeCompare(b.nome,'pt-BR'));
-  return L.map(p=>({ cod:String(p.cod||''), nome:p.nome, categoria:p.categoria||'', caixa:rotuloCaixa(p), canal:CANAL_NOME[p.canal]||'',
+  const L = CAT.slice().sort(compararProdutos);
+  return L.map(p=>({ cod:String(p.cod||''), nome:p.nome, categoria:p.categoria||'', caixa:rotuloCaixa(p), canal:CANAL_NOME[p.canal]||'', marca:String(p.marca||''), grupo:rotuloGrupo(p),
     pCaixa: precoContrato(p.pCaixa||0, t.pct), pPacote: p.pPacote ? precoContrato(p.pPacote, t.pct) : 0 }));
 }
 function tbSlug(t){ return 'tabela-'+(sac(t.nome).replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'').slice(0,28)||'precos'); }
@@ -3221,29 +3233,38 @@ function pdfDaTabela(t){
     y += 40; pg.linha(M, y, A4L-M, y, 2, GRAFITE_PDF); y += 16;
     pg.ret(M, y-11, A4L-2*M, 16, GRAFITE_PDF);
     pg.txt(M+5, y, 'CÓD.', {tam:7.5, negrito:true, cor:CREME_PDF});
-    pg.txt(M+48, y, 'PRODUTO', {tam:7.5, negrito:true, cor:CREME_PDF});
-    pg.txt(A4L-M-150, y, 'CAIXA', {tam:7.5, negrito:true, cor:CREME_PDF});
-    pg.txt(A4L-M-58, y, 'R$ CAIXA', {tam:7.5, negrito:true, cor:CREME_PDF, align:'r'});
-    pg.txt(A4L-M-4, y, 'R$ PACOTE', {tam:7.5, negrito:true, cor:CREME_PDF, align:'r'});
+    pg.txt(X_NOME, y, 'PRODUTO', {tam:7.5, negrito:true, cor:CREME_PDF});
+    pg.txt(X_CAIXA, y, 'CAIXA', {tam:7.5, negrito:true, cor:CREME_PDF});
+    pg.txt(X_PCX, y, 'R$ CAIXA', {tam:7.5, negrito:true, cor:CREME_PDF, align:'r'});
+    pg.txt(X_PPCT, y, 'R$ PACOTE', {tam:7.5, negrito:true, cor:CREME_PDF, align:'r'});
     y += 14;
   };
+  /* colunas com folga: o rotulo da caixa ("CX pequena · 40 pct") nao encosta mais no preco */
+  const X_NOME = M+46, X_CAIXA = M+312, X_PCX = A4L-M-68, X_PPCT = A4L-M-4;
+  const LARG_NOME = X_CAIXA - X_NOME - 8;
   cab();
-  let cat = null, zebra = 0;
+  let cat = null, grupo = null, zebra = 0;
   linhasTabela(t).forEach(l=>{
     if(y > A4A - M - 30) cab();
+    if(l.grupo !== grupo){
+      grupo = l.grupo; cat = null;
+      if(y > A4A - M - 60) cab();
+      y += 6; pg.ret(M, y-9, A4L-2*M, 15, LINHA_PDF);
+      pg.txt(M+5, y+1, grupo, {tam:8.5, negrito:true, cor:GRAFITE_PDF}); y += 16;
+    }
     if(l.categoria !== cat){
       cat = l.categoria;
       if(y > A4A - M - 44) cab();
-      y += 4; pg.txt(M, y, cat.toUpperCase(), {tam:7.5, negrito:true, cor:CINZA_PDF}); y += 12;
+      y += 3; pg.txt(M+5, y, cat.toUpperCase(), {tam:7.5, negrito:true, cor:CINZA_PDF}); y += 12;
     }
-    const nomeL = quebrarLinhas(l.nome, A4L-M-150-(M+48)-8, 8.5, false);
+    const nomeL = quebrarLinhas(l.nome, LARG_NOME, 8.5, false);
     const alt = Math.max(1, nomeL.length)*10 + 5;
     if(zebra%2===0) pg.ret(M, y-8, A4L-2*M, alt, CREME_PDF);
     pg.txt(M+5, y, l.cod, {tam:8, cor:GRAFITE_PDF});
-    nomeL.forEach((ln,k)=>pg.txt(M+48, y+k*10, ln, {tam:8.5, negrito:k===0, cor:GRAFITE_PDF}));
-    pg.txt(A4L-M-150, y, l.caixa, {tam:7.5, cor:CINZA_PDF});
-    pg.txt(A4L-M-58, y, brl(l.pCaixa), {tam:8.5, negrito:true, cor:GRAFITE_PDF, align:'r'});
-    if(l.pPacote) pg.txt(A4L-M-4, y, brl(l.pPacote), {tam:8.5, cor:GRAFITE_PDF, align:'r'});
+    nomeL.forEach((ln,k)=>pg.txt(X_NOME, y+k*10, ln, {tam:8.5, negrito:k===0, cor:GRAFITE_PDF}));
+    pg.txt(X_CAIXA, y, l.caixa, {tam:7.5, cor:CINZA_PDF});
+    pg.txt(X_PCX, y, brl(l.pCaixa), {tam:8.5, negrito:true, cor:GRAFITE_PDF, align:'r'});
+    if(l.pPacote) pg.txt(X_PPCT, y, brl(l.pPacote), {tam:8.5, cor:GRAFITE_PDF, align:'r'});
     y += alt; zebra++;
   });
   y += 14; pg.linha(M, y, A4L-M, y, 0.5, LINHA_PDF); y += 14;
@@ -3253,14 +3274,22 @@ function pdfDaTabela(t){
 }
 function xlsxDaTabela(t){
   const L = [[{v:'Tabela de preços — '+t.nome, s:'titulo'}], [{v:nomeMarca()+' · '+dbr(hoje()), s:'cinza'}], []];
-  L.push(['Código','Produto','Categoria','Caixa','Canal','R$ caixa','R$ pacote'].map(v=>({v,s:'negrito'})));
-  linhasTabela(t).forEach(l=>L.push([l.cod, l.nome, l.categoria, l.caixa, l.canal, {v:l.pCaixa,s:'moeda'}, l.pPacote?{v:l.pPacote,s:'moeda'}:'']));
-  return xlsxDe('Tabela', L, [10, 44, 18, 20, 12, 12, 12]);
+  L.push(['Marca','Canal','Categoria','Código','Produto','Caixa','R$ caixa','R$ pacote'].map(v=>({v,s:'negrito'})));
+  let g = null;
+  linhasTabela(t).forEach(l=>{
+    if(l.grupo!==g){ g = l.grupo; L.push([{v:g, s:'negrito'}]); }
+    L.push([l.marca, l.canal, l.categoria, l.cod, l.nome, l.caixa, {v:l.pCaixa,s:'moeda'}, l.pPacote?{v:l.pPacote,s:'moeda'}:'']);
+  });
+  return xlsxDe('Tabela', L, [9, 13, 18, 9, 44, 20, 12, 12]);
 }
 function textoTabela(t){
   const L = ['TABELA DE PREÇOS — '+t.nome+' — '+nomeMarca(), dbr(hoje()), _REGUA];
-  let cat = null;
-  linhasTabela(t).forEach(l=>{ if(l.categoria!==cat){ cat=l.categoria; L.push('', cat.toUpperCase()); } L.push(l.cod+' — '+l.nome+' — '+brl(l.pCaixa)+' cx'+(l.pPacote?' ('+brl(l.pPacote)+' pct)':'')); });
+  let cat = null, g = null;
+  linhasTabela(t).forEach(l=>{
+    if(l.grupo!==g){ g=l.grupo; cat=null; L.push('', '== '+g+' =='); }
+    if(l.categoria!==cat){ cat=l.categoria; L.push('', cat.toUpperCase()); }
+    L.push(l.cod+' — '+l.nome+' ('+l.caixa+') — '+brl(l.pCaixa)+' cx'+(l.pPacote?' · '+brl(l.pPacote)+' pct':''));
+  });
   L.push('', 'Preços por caixa fechada. '+[D.cfg.repNome, D.cfg.repTel?telBonito(D.cfg.repTel):''].filter(Boolean).join(' · '));
   return L.join('\n');
 }
