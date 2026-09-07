@@ -3126,8 +3126,19 @@ function painelTabelas(){
     'continuar recebendo o mesmo valor, o preço dele sobe: <b>tabela ÷ (1 − X%)</b>, arredondado para cima no centavo. '+
     'Ex.: R$ 10,00 com 5% → 10 ÷ 0,95 = 10,5263 → <b>R$ 10,53</b>. '+
     'Por enquanto não muda o pedido: serve para conferir e para marcar no cadastro do cliente.</div></div></div>';
+  /* a tabela oficial tambem sai em PDF/planilha: e a "de 0%" que ele leva na manga */
+  const of = TB_OFICIAL();
+  h += '<div class="cartao" style="border-left:4px solid var(--dourado)"><div class="corpo">'+
+    '<div style="font-weight:800;font-size:calc(16px * var(--esc))">'+esc(of.nome)+'</div>'+
+    '<div class="peq">Sem contrato (0%) · preços como estão na tabela · '+CAT.length+' produtos</div>'+
+    '<div class="linha-bt mt10">'+
+      '<button class="bt bt-d" data-a="tbCompartilhar" data-i="oficial">'+ico('subir')+'Compartilhar</button>'+
+      '<button class="bt bt-l" data-a="tbPDF" data-i="oficial">'+ico('doc')+'PDF</button>'+
+      '<button class="bt bt-l" data-a="tbXLSX" data-i="oficial">'+ico('baixar')+'Planilha</button>'+
+      '<button class="bt bt-l" data-a="tbCopiar" data-i="oficial">'+ico('copiar')+'Texto</button>'+
+    '</div></div></div>';
   h += '<button class="bt bt-p bt-bloco" data-a="tbNova">'+ico('mais')+'Nova tabela de contrato</button>';
-  if(!tabs.length) h += '<div class="peq" style="margin:8px 3px 12px">Nenhuma tabela criada. Crie uma com o percentual do contrato.</div>';
+  if(!tabs.length) h += '<div class="peq" style="margin:8px 3px 12px">Nenhuma tabela de contrato criada. Crie uma com o percentual (pode ser 0%, para uma segunda tabela sem contrato com outro nome).</div>';
   tabs.forEach(t=>{
     h += '<div class="cartao" style="margin-top:10px"><div class="corpo">'+
       '<div style="display:flex;align-items:center;gap:8px"><div style="flex:1"><div style="font-weight:800;font-size:calc(16px * var(--esc))">'+esc(t.nome)+'</div>'+
@@ -3177,7 +3188,7 @@ ACOES.tbEditar = id => {
 ACOES.tbSalvar = id => {
   const nome = (el('tb_nome')||{}).value || '', pct = pnum((el('tb_pct')||{}).value);
   if(!nome.trim()){ aviso('Dê um nome para a tabela.'); return; }
-  if(!(pct>0 && pct<60)){ aviso('Contrato precisa ser um percentual entre 0 e 60.'); return; }
+  if(!(pct>=0 && pct<60)){ aviso('Contrato precisa ser um percentual entre 0 e 60.'); return; }
   const detalhe = ((el('tb_detalhe')||{}).value || '').trim();
   if(!Array.isArray(D.cfg.tabelas)) D.cfg.tabelas = [];
   if(id==='novo') D.cfg.tabelas.push({id:'t'+uid(), nome:nome.trim(), pct:pct, detalhe:detalhe});
@@ -3253,7 +3264,8 @@ function textoTabela(t){
   L.push('', 'Preços por caixa fechada. '+[D.cfg.repNome, D.cfg.repTel?telBonito(D.cfg.repTel):''].filter(Boolean).join(' · '));
   return L.join('\n');
 }
-const tbDe = id => (D.cfg.tabelas||[]).find(x=>x.id===id);
+const TB_OFICIAL = () => ({ id:'oficial', nome:'Tabela '+(D.cfg.tabelaVersao||nomeMarca()), pct:0, detalhe:'' });
+const tbDe = id => id==='oficial' ? TB_OFICIAL() : (D.cfg.tabelas||[]).find(x=>x.id===id);
 ACOES.tbPDF    = id => { const t=tbDe(id); if(!t || !tbNomeSeguro(t)) return; if(!CAT.length){ aviso('Sem tabela de preços neste aparelho.'); return; } baixar(tbSlug(t)+'.pdf', pdfDaTabela(t), 'application/pdf'); };
 ACOES.tbXLSX   = id => { const t=tbDe(id); if(!t || !tbNomeSeguro(t)) return; if(!CAT.length){ aviso('Sem tabela de preços neste aparelho.'); return; } baixar(tbSlug(t)+'.xlsx', xlsxDaTabela(t), TIPO_XLSX); };
 ACOES.tbCopiar = id => { const t=tbDe(id); if(!t || !tbNomeSeguro(t)) return; copiar(textoTabela(t)); };
