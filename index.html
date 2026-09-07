@@ -892,6 +892,7 @@ function irPara(a){
     if(ped && ped.clienteId && ped.itens.length){ ACOES.sairDoPedido(a); return; }
     if(ped && ped.clienteId && !ped.itens.length){ D.pedidos = D.pedidos.filter(x=>x.id!==ped.id); D.rascunhoId = null; gravar(); }
   }
+  ESCOLHENDO_CLIENTE = false;
   ABA=a; VISTA=null; localStorage.setItem(K_ABA,a); window.scrollTo(0,0); render();
 }
 
@@ -907,6 +908,7 @@ ACOES.aba    = a => irPara(a);
 ACOES.voltar = () => {
   if(!VISTA && ABA==='pedido'){
     const ped = pedidoRascunho();
+    if(!(ped && ped.clienteId) && ESCOLHENDO_CLIENTE){ ESCOLHENDO_CLIENTE = false; bqCli=''; window.scrollTo(0,0); render(); return; }
     if(ped && ped.clienteId){
       /* dos itens a seta volta para os dados (etapa 1); dos dados, sai do pedido */
       if(etapaDe(ped)==='itens'){ ped.etapa='dados'; gravar(); window.scrollTo(0,0); render(); return; }
@@ -983,6 +985,7 @@ const vlr = v => (Number(v)||0).toLocaleString('pt-BR',{minimumFractionDigits:2,
    TELA: PEDIDO
    ===================================================== */
 let bq = '';            // texto da busca de produto
+let ESCOLHENDO_CLIENTE = false;   // aba Pedido: false = tela "Novo pedido"; true = escolhendo o cliente
 let fCanal = null;      // canal escolhido à mão
 let fCat = null;        // categoria
 let bqCli = '';         // busca de cliente
@@ -1283,19 +1286,41 @@ function seletorCliente(){
     h += '</div>';
   }
 
+  /* aba Pedido abre com um botao so: NOVO PEDIDO. Escolher o cliente vem depois do toque.
+     Cadastro de cliente e coisa da aba Clientes (pedido do Willian). */
+  if(!ESCOLHENDO_CLIENTE){
+    h += '<button class="bt bt-p bt-bloco bt-alto" data-a="novoPedidoIniciar">'+ico('mais')+'NOVO PEDIDO</button>'+
+      '<div class="peq" style="margin:7px 3px 14px">Escolhe o cliente, preenche os dados, monta os itens e confere. '+
+      (D.clientes.length ? '' : 'Ainda não há cliente cadastrado: cadastre na aba <b>Clientes</b> primeiro.')+'</div>';
+    const ult = D.pedidos.filter(p=>p.status!=='Rascunho').sort((a,b)=>(b.criadoEm||b.data||'').localeCompare(a.criadoEm||a.data||'')).slice(0,4);
+    if(ult.length){
+      h += '<div class="secao">Últimos pedidos</div><div class="cartao">';
+      ult.forEach(p=>{
+        const c = clienteDe(p), t = totais(p);
+        h += '<button class="lin" data-a="abrirPedido" data-i="'+esc(p.id)+'">'+
+          '<span class="ini">'+esc(iniciais(c?(c.fantasia||c.razao):'?'))+'</span>'+
+          '<span class="info"><span class="nm">'+esc(c?(c.fantasia||c.razao):'Sem cliente')+'</span>'+
+          '<span class="sub"><span>'+esc(p.num)+'</span><span>'+dbr(p.data)+'</span><span class="et '+seloStatus(p.status)+'">'+esc(p.status)+'</span>'+
+          (p.demo?'<span class="et et-ex">exemplo</span>':'')+'</span></span>'+
+          '<span class="dir"><span class="val">'+brl0(t.liquido)+'</span></span>'+
+          '<span class="seta">'+ico('seta')+'</span></button>';
+      });
+      h += '</div>';
+    }
+    return h;
+  }
+
   h += '<div class="secao">Para quem é o pedido?</div>';
   if(!D.clientes.length){
     h += '<div class="cartao"><div class="vazio">'+ico('clientes')+
-      '<p>Nenhum cliente cadastrado</p><span>Cadastre o primeiro cliente para abrir um pedido. '+
+      '<p>Nenhum cliente cadastrado</p><span>Cadastre o primeiro cliente na aba Clientes para abrir um pedido. '+
       'Leva menos de um minuto.</span></div></div>'+
-      '<button class="bt bt-d bt-bloco" data-a="novoCliente">'+ico('mais')+'Cadastrar cliente</button>';
+      '<button class="bt bt-d bt-bloco" data-a="aba" data-i="clientes">'+ico('clientes')+'Ir para Clientes</button>';
     return h;
   }
   h += '<div class="busca" style="margin-bottom:10px">'+ico('busca')+
        '<input type="text" placeholder="Buscar cliente" value="'+esc(bqCli)+'" data-in="bqCli">'+
        (bqCli?'<button class="limpar" data-a="limpaCli">'+ico('x')+'</button>':'')+'</div>';
-  /* cadastrar novo fica no alto: com a carteira grande, ninguem rola ate o fim para achar o botao */
-  h += '<button class="bt bt-l bt-bloco" style="margin-bottom:10px" data-a="novoCliente">'+ico('mais')+'Novo cliente</button>';
   h += '<div class="cartao">';
   if(!lista.length) h += '<div class="vazio">'+ico('busca')+'<p>Nenhum cliente com esse nome</p></div>';
   lista.forEach(c=>{
@@ -1460,7 +1485,12 @@ ACOES.setCanal = c => { fCanal = c; fCat = null; const ch=el('chips'); const ped
 ACOES.setCat = c => { fCat = c||null; const ch=el('chips'); const ped=pedidoRascunho();
   if(ch&&ped) ch.innerHTML = chipsProduto(ped); pintaResultados(); };
 
+ACOES.novoPedidoIniciar = () => {
+  ESCOLHENDO_CLIENTE = true; bqCli = ''; window.scrollTo(0,0); render();
+  setTimeout(()=>{ const n=document.querySelector('[data-in="bqCli"]'); if(n) n.focus(); }, 120);
+};
 ACOES.escolherCliente = id => {
+  ESCOLHENDO_CLIENTE = false;
   let ped = pedidoRascunho();
   if(!ped) ped = novoPedido(id);
   else { ped.clienteId = id; const c=clientePorId(id); if(c&&c.cond) ped.cond=c.cond; }
@@ -6721,7 +6751,8 @@ function tituloTela(){
         return {tit: et==='dados' ? 'Dados do pedido' : 'Itens do pedido',
                 sub: 'Pedido '+ped.num+' · etapa '+(et==='dados'?'1':'2')+' de 3', volta:true};
       }
-      return {tit:'Novo pedido', sub:'Escolha o cliente', volta:false};
+      if(ESCOLHENDO_CLIENTE) return {tit:'Novo pedido', sub:'Para quem é o pedido?', volta:true};
+      return {tit:'Pedidos', sub:'Novo pedido ou rascunho', volta:false};
     case 'clientes':  return {tit:'Clientes', sub:D.clientes.length+' na carteira'};
     case 'painel':    return {tit:'Painel',   sub:perRot(PER)};
     case 'margem':    return {tit:'Margem',   sub:'Simulador para negociar'};
