@@ -641,6 +641,8 @@ const CFG_PADRAO = {
   condPadrao:'28 dias',
   prefixo:'REP-',          /* o numero do representante nunca parece numero de compra do cliente */
   copiaRep:false,          /* copia oculta dos e-mails para o e-mail do representante */
+  pin:'',                  /* PIN de 4 numeros ao abrir (guardado embaralhado); vazio = sem bloqueio */
+  pinMinutos:-1,           /* -1 = so pede ao abrir o app (padrao, mais simples); 0 = sempre que voltar; N = minutos fora */
   letra:'p',
   tema:'claro',       /* claro | escuro | auto (segue o aparelho) */
   ultimoBackup:'',    /* AAAA-MM-DD do ultimo backup feito neste aparelho */
@@ -699,6 +701,10 @@ if(!Array.isArray(D.cfg.contatos)) D.cfg.contatos = [];
 /* aparelhos antigos vinham com prefixo vazio: o numero do Anderson (0055) confundia com o do
    cliente na industria. Passa a REP-; os pedidos ja feitos ficam como estao. */
 if(!D.cfg.prefixo && !D.cfg.prefixoDefinido){ D.cfg.prefixo = 'REP-'; D.cfg.prefixoDefinido = true; }
+/* bloqueio por PIN: comeca travado se houver PIN (declarado aqui, antes do primeiro render) */
+let TRAVADO = !!(D.cfg.pin);
+let PIN_ESCONDEU = 0;
+let PIN_DIG = '';
 /* aparelho de versão antiga não tem marcas: ganha a padrão sem perder nada */
 function normalizarMarcas(){
   if(!Array.isArray(D.cfg.marcas) || !D.cfg.marcas.length)
@@ -3801,6 +3807,20 @@ function telaAjustes(){
       }).join('')+
     '</div></div></div>';
 
+  h += '<div class="secao">Bloqueio ao abrir</div><div class="cartao"><div class="corpo">'+
+    (cfg.pin
+      ? '<div><b>PIN ligado.</b> O app pede 4 números ao abrir e ao voltar depois de um tempo fora.</div>'+
+        '<div class="campo mt10 mb0"><label>Pedir de novo depois de</label><select data-in="pinMinutos">'+
+          [[0,'Sempre que sair e voltar'],[1,'1 minuto fora'],[5,'5 minutos fora'],[30,'30 minutos fora'],[-1,'Só ao abrir o app']]
+            .map(o=>'<option value="'+o[0]+'"'+(Number(cfg.pinMinutos)===o[0]?' selected':'')+'>'+o[1]+'</option>').join('')+
+        '</select></div>'+
+        '<div class="linha-bt mt10"><button class="bt bt-l" data-a="pinCriar">Trocar PIN</button>'+
+        '<button class="bt bt-l" data-a="pinRemover" style="color:var(--terracota)">Tirar PIN</button></div>'+
+        '<button class="bt bt-t bt-bloco mt10" data-a="pinTravarAgora">Bloquear agora</button>'
+      : '<div class="peq" style="margin-bottom:10px">Para o app não abrir direto na mão de outra pessoa (criança com o celular, por exemplo): um PIN de 4 números ao abrir. Se esquecer, a senha da nuvem tira o PIN.</div>'+
+        '<button class="bt bt-p bt-bloco" data-a="pinCriar">Criar PIN de 4 números</button>')+
+  '</div></div>';
+
   h += '<div class="secao">Tema</div><div class="cartao"><div class="corpo">'+
     '<div class="peq" style="margin-bottom:11px">Claro \u00e9 o de sempre e \u00e9 o que se l\u00ea melhor no sol. '+
     'Escuro cansa menos a vista de noite e dentro do carro. Autom\u00e1tico segue o aparelho: '+
@@ -6445,6 +6465,7 @@ function gmailRetorno(){
          desde: (GM&&GM.desde)||new Date().toISOString() };
   try{ localStorage.setItem(K_GMAIL, JSON.stringify(GM)); }catch(e){}
   if(pend && pend.pedidoId){
+    TRAVADO = false;   /* ele acabou de sair do app para o Google; nao faz sentido pedir o PIN agora */
     setTimeout(()=>{ if(precisaEntrar()) return; ACOES.irEnviar(pend.pedidoId); ACOES.gmailEnviar(pend.pedidoId, pend.variante); }, 400);
   } else setTimeout(()=>{ aviso('Gmail conectado neste aparelho'); if(ABA==='ajustes') render(); }, 400);
 }
@@ -6745,6 +6766,97 @@ ACOES.portaoEntrar = async () => {
 };
 function precisaEntrar(){ return !nuvemLogada(); }
 
+/* =====================================================
+   BLOQUEIO POR PIN — para o celular nao abrir o app direto na mao de outra pessoa.
+   Opcional, ligado em Ajustes. O PIN fica embaralhado no aparelho; nao vai para a nuvem
+   nem para o backup do arquivo. "Esqueci" = senha da nuvem apaga o PIN.
+   ===================================================== */
+function pinHash(p){ let h = 2166136261; const t = 'harus|'+String(p); for(let i=0;i<t.length;i++){ h ^= t.charCodeAt(i); h = Math.imul(h, 16777619); } return 'p'+(h>>>0).toString(36); }
+function pinTravar(){ if(D.cfg.pin && !precisaEntrar()){ TRAVADO = true; PIN_DIG=''; fechaModal(); render(); } }
+try{
+  document.addEventListener('visibilitychange', ()=>{
+    if(!D.cfg.pin) return;
+    if(document.visibilityState==='hidden'){ PIN_ESCONDEU = Date.now(); return; }
+    const min = Number(D.cfg.pinMinutos); if(isNaN(min) || min<0) return;
+    if(PIN_ESCONDEU && Date.now()-PIN_ESCONDEU >= min*60000) pinTravar();
+  });
+}catch(e){}
+function telaPin(){
+  const pontos = [0,1,2,3].map(i=>'<span style="width:16px;height:16px;border-radius:50%;border:2px solid var(--grafite);display:inline-block;margin:0 7px;background:'+(i<PIN_DIG.length?'var(--grafite)':'transparent')+'"></span>').join('');
+  const tecla = n => '<button class="bt bt-l" data-a="pinTecla" data-i="'+n+'" style="min-height:60px;font-size:calc(22px * var(--esc));font-weight:700">'+n+'</button>';
+  return '<div class="cartao" style="margin-top:18px"><div class="corpo" style="text-align:center">'+
+    '<div style="font-size:calc(19px * var(--esc));font-weight:800;letter-spacing:-.3px;margin-bottom:4px">Digite o PIN</div>'+
+    '<div class="peq" style="margin-bottom:16px">Só quem sabe os 4 números abre os pedidos.</div>'+
+    '<div id="pin_pontos" style="margin-bottom:18px">'+pontos+'</div>'+
+    '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;max-width:300px;margin:0 auto">'+
+      [1,2,3,4,5,6,7,8,9].map(tecla).join('')+
+      '<button class="bt bt-t" data-a="pinEsqueci" style="min-height:60px;font-size:calc(12.5px * var(--esc))">Esqueci</button>'+
+      tecla(0)+
+      '<button class="bt bt-t" data-a="pinApaga" style="min-height:60px" aria-label="Apagar">'+ico('volta')+'</button>'+
+    '</div>'+
+    '</div></div>'+
+    '<div class="peq ct" style="margin-top:14px">'+esc(nomeMarca())+' · app de pedidos</div>';
+}
+function pinPintar(){ const c = el('pin_pontos'); if(!c) return; c.innerHTML = [0,1,2,3].map(i=>'<span style="width:16px;height:16px;border-radius:50%;border:2px solid var(--grafite);display:inline-block;margin:0 7px;background:'+(i<PIN_DIG.length?'var(--grafite)':'transparent')+'"></span>').join(''); }
+ACOES.pinTecla = n => {
+  if(PIN_DIG.length>=4) return;
+  PIN_DIG += String(n); pinPintar();
+  if(PIN_DIG.length===4){
+    if(pinHash(PIN_DIG)===D.cfg.pin){ TRAVADO=false; PIN_DIG=''; render(); }
+    else { setTimeout(()=>{ PIN_DIG=''; pinPintar(); aviso('PIN errado'); if(navigator.vibrate) navigator.vibrate(120); }, 250); }
+  }
+};
+ACOES.pinApaga = () => { PIN_DIG = PIN_DIG.slice(0,-1); pinPintar(); };
+ACOES.pinEsqueci = () => {
+  modal('Esqueceu o PIN?',
+    '<p style="margin:2px 0 10px;font-size:calc(14.5px * var(--esc));line-height:1.5">Digite a senha da nuvem (a mesma do login) para tirar o PIN. Depois você cria outro em Ajustes, se quiser.</p>'+
+    '<div class="campo mb0"><label>Senha da nuvem de '+esc((SESSAO&&SESSAO.email)||'')+'</label><input type="password" id="pin_senha"></div>',
+    '<button class="bt bt-p bt-bloco" data-a="pinResetar">Tirar o PIN</button>'+
+    '<button class="bt bt-t bt-bloco mt10" data-a="fechaModal">Voltar</button>');
+  setTimeout(()=>{ const n=el('pin_senha'); if(n) n.focus(); }, 150);
+};
+ACOES.pinResetar = async () => {
+  const senha = (el('pin_senha')||{}).value || ''; const email = (SESSAO&&SESSAO.email)||'';
+  if(!senha || !email){ aviso('Digite a senha.'); return; }
+  aviso('Conferindo...');
+  try{
+    await nuvemFetch('/auth/v1/token?grant_type=password', { email: email, password: senha }, true);
+    D.cfg.pin = ''; gravar(true); TRAVADO=false; PIN_DIG=''; fechaModal(); render(); aviso('PIN removido');
+  }catch(e){
+    const m = String(e.message||'');
+    aviso(/invalid|credentials/i.test(m) ? 'Senha errada.' : /failed to fetch|network/i.test(m) ? 'Sem internet para conferir a senha.' : 'Não deu: '+m);
+  }
+};
+/* Ajustes: criar / trocar / remover */
+ACOES.pinCriar = () => {
+  modal(D.cfg.pin ? 'Trocar o PIN' : 'Criar PIN de abertura',
+    (D.cfg.pin ? '<div class="campo"><label>PIN atual</label><input type="password" inputmode="numeric" maxlength="4" id="pin_atual"></div>' : '')+
+    '<div class="campo"><label>Novo PIN (4 números)</label><input type="password" inputmode="numeric" maxlength="4" id="pin_novo"></div>'+
+    '<div class="campo mb0"><label>Repita o novo PIN</label><input type="password" inputmode="numeric" maxlength="4" id="pin_novo2"></div>'+
+    '<div class="dica" style="margin-top:8px">Evite 1234 ou o ano de nascimento. Se esquecer, a senha da nuvem tira o PIN.</div>',
+    '<button class="bt bt-p bt-bloco" data-a="pinSalvar">Salvar PIN</button>');
+  setTimeout(()=>{ const n=el(D.cfg.pin?'pin_atual':'pin_novo'); if(n) n.focus(); }, 150);
+};
+ACOES.pinSalvar = () => {
+  const a = (el('pin_atual')||{}).value || '', n1 = (el('pin_novo')||{}).value || '', n2 = (el('pin_novo2')||{}).value || '';
+  if(D.cfg.pin && pinHash(a)!==D.cfg.pin){ aviso('O PIN atual não bate.'); return; }
+  if(!/^\d{4}$/.test(n1)){ aviso('O PIN precisa ter 4 números.'); return; }
+  if(n1!==n2){ aviso('Os dois PINs não são iguais.'); return; }
+  D.cfg.pin = pinHash(n1); gravar(); fechaModal(); render(); aviso('PIN salvo. O app vai pedir ao abrir.');
+};
+ACOES.pinRemover = () => {
+  modal('Tirar o PIN', '<div class="campo mb0"><label>PIN atual</label><input type="password" inputmode="numeric" maxlength="4" id="pin_atual"></div>',
+    '<button class="bt bt-r bt-bloco" data-a="pinRemoverOk">Tirar o PIN</button>');
+  setTimeout(()=>{ const n=el('pin_atual'); if(n) n.focus(); }, 150);
+};
+ACOES.pinRemoverOk = () => {
+  const a = (el('pin_atual')||{}).value || '';
+  if(pinHash(a)!==D.cfg.pin){ aviso('O PIN atual não bate.'); return; }
+  D.cfg.pin = ''; gravar(); fechaModal(); render(); aviso('PIN removido');
+};
+ENTRADAS.pinMinutos = v => { D.cfg.pinMinutos = Number(v); gravar(); };
+ACOES.pinTravarAgora = () => pinTravar();
+
 function render(){
   if(precisaEntrar()){
     el('topo').innerHTML = '<div class="barra"><span class="logo">'+esc(marcaAtual().logo1||nomeMarca())+(marcaAtual().logo2?'<b>'+esc(marcaAtual().logo2)+'</b>':'')+'</span>'+
@@ -6752,6 +6864,14 @@ function render(){
     el('tela').innerHTML = faixaVersiculo() + telaPortao();
     el('abas').innerHTML = ''; el('rodape').innerHTML = '';
     setTimeout(()=>{ const n = el(nuvemPronta() ? (SESSAO&&SESSAO.email ? 'nv_senha' : 'nv_email') : 'pt_chave'); if(n) n.focus(); }, 120);
+    return;
+  }
+  /* PIN: mesma ideia do portao, mas so pede os 4 numeros */
+  if(TRAVADO && D.cfg.pin){
+    el('topo').innerHTML = '<div class="barra"><span class="logo">'+esc(marcaAtual().logo1||nomeMarca())+(marcaAtual().logo2?'<b>'+esc(marcaAtual().logo2)+'</b>':'')+'</span>'+
+      '<div class="tit" style="text-align:right">Bloqueado<div class="sub" style="font-weight:500">'+esc(nomeMarca())+'</div></div></div>';
+    el('tela').innerHTML = telaPin();
+    el('abas').innerHTML = ''; el('rodape').innerHTML = ''; el('rodape').classList.remove('on');
     return;
   }
   const t = tituloTela();
