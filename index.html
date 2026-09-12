@@ -1339,7 +1339,7 @@ function blocoFechamento(ped){
 /* "dei X% no item tal; sobre o pedido inteiro deu Y%" — para ele negociar sabendo o peso do que deu */
 function linhaDescontoNegociado(ped){
   const dn = descontoNegociado(ped); if(dn.valor<=0.005) return '';
-  return '<div class="total-lin" style="color:var(--verde)"><span>Desconto negociado nos itens<br><span class="peq" style="color:var(--verde)">−'+nm(dn.pct,1)+'% sobre o pedido na tabela</span></span><span>− '+brl(dn.valor)+'</span></div>';
+  return '<div class="total-lin" style="color:var(--verde)"><span>Desconto negociado (já aplicado nos itens)<br><span class="peq" style="color:var(--verde)">−'+nm(dn.pct,1)+'% sobre o pedido na tabela</span></span><span>− '+brl(dn.valor)+'</span></div>';
 }
 function somasHTML(ped){
   const t = totais(ped);
@@ -1948,7 +1948,7 @@ function montarTexto(ped, marcado, paraCliente){
   if(cli.fantasia && cli.fantasia!==cli.razao) L.push('Fantasia: '+cli.fantasia);
   /* Codigo do representante e controle interno do Anderson: nao sai em via nenhuma, para o analista da
      industria nao digitar o numero errado. Na via da industria sai so o codigo do cliente no sistema DELES. */
-  if(!paraCliente) L.push('Código do cliente no sistema de vocês: '+(cli.codIndustria || 'ainda não tem — cadastro novo'));
+  if(!paraCliente) L.push('Código do cliente na indústria: '+(cli.codIndustria || 'ainda não tem — cadastro novo'));
   if(cli.agendamento) L.push('Descarga / agendamento: '+cli.agendamento);
   if(cli.rede)      L.push('Rede: '+cli.rede + (cli.loja?' — loja '+cli.loja:''));
   else if(cli.loja) L.push('Loja: '+cli.loja);
@@ -1983,7 +1983,7 @@ function montarTexto(ped, marcado, paraCliente){
        cliente so ve quando foi desconto ("de X por Y"); acima da tabela, nada */
     const tb = tabelaDoItem(it);
     if(tb !== null){
-      if(!paraCliente) L.push('   '+b+'PREÇO NEGOCIADO: faturar '+brl(it.preco)+' a caixa'+b+' (tabela '+brl(tb)+')');
+      if(!paraCliente) L.push('   '+b+'PREÇO NEGOCIADO: faturar '+brl(it.preco)+' a caixa'+b);
       else if(it.preco < tb) L.push('   desconto de '+nm((tb-it.preco)/tb*100,1)+'% neste item');
     }
     if(paraCliente){
@@ -2000,7 +2000,7 @@ function montarTexto(ped, marcado, paraCliente){
   L.push(_pt('Caixas',   nm(t.cx, t.cx%1?1:0)));
   L.push(_pt('Peso',     nm(t.kg,1)+' kg'));
   L.push(_pt('Subtotal', brl(t.bruto)));
-  { const dn = descontoNegociado(ped); if(dn.valor>0.005) L.push(_pt('Desconto negociado nos itens', '−'+brl(dn.valor)+' (−'+nm(dn.pct,1)+'% sobre a tabela)')); }
+  if(paraCliente){ const dn = descontoNegociado(ped); if(dn.valor>0.005) L.push(_pt('Desconto já aplicado nos itens', '−'+brl(dn.valor)+' (−'+nm(dn.pct,1)+'% sobre a tabela)')); }
   if(t.desc>0) L.push(_pt('Desconto '+vlr(ped.desc).replace(/,00$/,'')+'%', '- '+brl(t.desc)));
   L.push(_REGUA);
   L.push(b+_pt(ehBonif(ped)?'REFERÊNCIA (SEM COBRANÇA)':'TOTAL', brl(t.liquido))+b);
@@ -4282,7 +4282,7 @@ function xlsxDoPedido(ped){
   if(lg){ const n = linha([{v:'', s:'normal'}, '', '', {v:(bon?'BONIFICAÇÃO — ':'')+'Pedido '+ped.num+'  ·  '+nomeMarca()+'  ·  '+dbr(ped.data), s:'titulo'}], 44); mesclar.push('D'+n+':'+ultima+n); }
   else faixa((bon?'BONIFICAÇÃO — ':'')+'Pedido '+ped.num+'  ·  '+nomeMarca()+'  ·  '+dbr(ped.data), 'titulo', 26);
   if(bon) faixa('PEDIDO DE BONIFICAÇÃO — SEM COBRANÇA. Não faturar como venda; os valores são referência para a nota de bonificação.', 'aviso', 22);
-  if(neg) faixa('ATENÇÃO: '+neg+' item(ns) com preço negociado, diferente da tabela. Faturar pelo "Preço caixa"; a coluna "Tabela" é só referência.', 'aviso', 22);
+  if(neg) faixa('ATENÇÃO: '+neg+' item(ns) com preço negociado, diferente da tabela. Faturar pelo "Preço caixa" de cada item.', 'aviso', 22);
   linha([]);
   faixa('PEDIDO', 'cab', 18);
   par('Nº do pedido no cliente (usar na NF)', ped.numCliente || 'não informado — usar o número de vocês', ped.numCliente ? 'nf' : null);
@@ -4296,7 +4296,7 @@ function xlsxDoPedido(ped){
   faixa('CLIENTE', 'cab', 18);
   par('Razão social', c.razao||'');
   par('Nome fantasia', (c.fantasia&&c.fantasia!==c.razao)?c.fantasia:'');
-  par('Código do cliente no sistema de vocês', c.codIndustria || 'ainda não tem — cadastro novo');
+  par('Código do cliente na indústria', c.codIndustria || 'ainda não tem — cadastro novo');
   par('CNPJ', c.cnpj?cnpjBonito(c.cnpj):'');
   par('IE / Regime', [c.ie, c.regime].filter(Boolean).join(' · '));
   par('Canal', [CANAL_NOME[c.canal], c.segmento].filter(Boolean).join(' · '));
@@ -4307,7 +4307,7 @@ function xlsxDoPedido(ped){
   par('E-mail para o XML da NF', c.emailXml||'');
   linha([]);
   /* itens com formulas */
-  const rCab = linha([{v:'#',s:'cabD'},{v:'Código',s:'cab'},{v:'Produto',s:'cab'},{v:'Marca',s:'cab'},{v:'Caixas',s:'cabD'},{v:'Peso (kg)',s:'cabD'},{v:'Preço caixa',s:'cabD'},{v:'Total',s:'cabD'}].concat(neg?[{v:'Tabela (ref.)',s:'cabD'}]:[]), 20);
+  const rCab = linha([{v:'#',s:'cabD'},{v:'Código',s:'cab'},{v:'Produto',s:'cab'},{v:'Marca',s:'cab'},{v:'Caixas',s:'cabD'},{v:'Peso (kg)',s:'cabD'},{v:'Preço caixa',s:'cabD'},{v:'Total',s:'cabD'}].concat(neg?[{v:'Obs.',s:'cab'}]:[]), 20);
   const r1 = rCab + 1;
   ped.itens.forEach((it,i)=>{
     const p = porId[it.skuId] || {};
@@ -4315,13 +4315,12 @@ function xlsxDoPedido(ped){
     const kgCx = kgDe(p, it.un);
     linha([{v:i+1,s:'celD'}, {v:String(it.cod||p.cod||''),s:'cel'}, {v:it.nome||p.nome||'',s:'cel'}, {v:p.marca||'',s:'cel'},
            {v:it.qtd,s:'num'}, {f:'ROUND('+String(kgCx).replace(',','.')+'*E'+r+',2)', v:Math.round(kgCx*it.qtd*100)/100, s:'num'},
-           {v:it.preco,s:'moedaCel'}, {f:'ROUND(E'+r+'*G'+r+',2)', v:Math.round(it.preco*it.qtd*100)/100, s:'moedaCel'}].concat(neg?[ tabelaDoItem(it)!==null ? {v:tabelaDoItem(it),s:'moedaCel'} : {v:'',s:'cel'} ]:[]));
+           {v:it.preco,s:'moedaCel'}, {f:'ROUND(E'+r+'*G'+r+',2)', v:Math.round(it.preco*it.qtd*100)/100, s:'moedaCel'}].concat(neg?[ tabelaDoItem(it)!==null ? {v:'PREÇO NEGOCIADO',s:'aviso'} : {v:'',s:'cel'} ]:[]));
   });
   const rN = rCab + ped.itens.length;
   linha([]);
   const rSub = linha(['','','','','','',{v:'Subtotal',s:'negrito'},{f:'SUM(H'+r1+':H'+rN+')', v:Math.round(t.bruto*100)/100, s:'moedaNegrito'}]);
-  const dn = descontoNegociado(ped);
-  if(dn.valor>0.005) linha(['','','','','','',{v:'Desconto negociado nos itens (−'+nm(dn.pct,1)+'% sobre a tabela)',s:'negrito'},{v:-Math.round(dn.valor*100)/100, s:'moeda'}]);
+  /* planilha vai so para a industria: sem linha de desconto negociado (ela recebe so o preco a faturar) */
   let rDesc = 0;
   if(t.desc>0){
     const rd = L.length + 1;
@@ -5915,7 +5914,7 @@ function pdfDoPedido(ped, paraCliente){
   const dados = [
     ['Razão social', cli.razao],
     ['Nome fantasia', (cli.fantasia && cli.fantasia!==cli.razao) ? cli.fantasia : ''],
-    ['Cód. no sistema de vocês', paraCliente ? '' : (cli.codIndustria || 'ainda não tem - cadastro novo')],
+    ['Cód. na indústria', paraCliente ? '' : (cli.codIndustria || 'ainda não tem - cadastro novo')],
     ['Descarga', cli.agendamento],
     ['CNPJ', cnpjBonito(cli.cnpj)],
     ['Inscrição estadual', cli.ie],
@@ -5965,7 +5964,7 @@ function pdfDoPedido(ped, paraCliente){
     if(paraCliente) refUn = refsDoItem(it, p).join('  ·  ');
     const tb = tabelaDoItem(it);
     let negoc = '';
-    if(tb !== null && !paraCliente) negoc = 'PREÇO NEGOCIADO — faturar '+brl(it.preco)+' a caixa (tabela '+brl(tb)+')';
+    if(tb !== null && !paraCliente) negoc = 'PREÇO NEGOCIADO — faturar '+brl(it.preco)+' a caixa';
     else if(tb !== null && paraCliente && it.preco < tb) negoc = 'desconto de '+nm((tb-it.preco)/tb*100,1)+'% neste item';
     const altura = Math.max(19, 8 + linhasNome.length*11 + (refUn?10:0) + (negoc?10:0));
 
@@ -6024,10 +6023,10 @@ function pdfDoPedido(ped, paraCliente){
   pg.txt(xr, yt, brl(t.bruto), {tam:9, align:'r'}); yt += 14;
   {
     const dn = descontoNegociado(ped);
-    if(dn.valor>0.005){
+    if(paraCliente && dn.valor>0.005){   /* so o cliente ve: a industria recebe so o preco a faturar */
       pg.txt(xl, yt, 'Desconto negociado', {tam:8.5, cor:[0.118,0.478,0.302]});
       pg.txt(xr, yt, '− '+brl(dn.valor), {tam:8.5, align:'r', cor:[0.118,0.478,0.302]}); yt += 11;
-      pg.txt(xl, yt, 'nos itens, sobre a tabela', {tam:7.5, cor:[0.118,0.478,0.302]});
+      pg.txt(xl, yt, 'já aplicado nos preços acima · sobre a tabela', {tam:7.5, cor:[0.118,0.478,0.302]});
       pg.txt(xr, yt, '−'+nm(dn.pct,1)+'%', {tam:7.5, align:'r', cor:[0.118,0.478,0.302]}); yt += 12;
     }
   }
@@ -7090,7 +7089,7 @@ function emailHtml(ped, paraCliente){
   if(cli.cnpj)      campos.push(['CNPJ', cnpjBonito(cli.cnpj)]);
   if(cli.ie)        campos.push(['Inscrição estadual', cli.ie]);
   if(cli.regime)    campos.push(['Regime tributário', cli.regime]);
-  if(!paraCliente) campos.push(['Código do cliente no sistema de vocês', cli.codIndustria || 'ainda não tem — cadastro novo']);
+  if(!paraCliente) campos.push(['Código do cliente na indústria', cli.codIndustria || 'ainda não tem — cadastro novo']);
   campos.push(['Canal', CANAL_NOME[cli.canal] || '—']);
   if(cli.segmento)   campos.push(['Tipo de negócio', cli.segmento]);
   if(cli.agendamento) campos.push(['Descarga / agendamento', cli.agendamento]);
@@ -7135,7 +7134,7 @@ function emailHtml(ped, paraCliente){
     const tb = tabelaDoItem(it);
     let precoCel = brl(it.preco);
     if(tb !== null && !paraCliente){
-      precoCel = '<b style="color:'+EM.terra+'">'+brl(it.preco)+'</b><div style="font-size:calc(10.5px * var(--esc));color:'+EM.cinza+';white-space:nowrap">negociado · tabela '+brl(tb)+'</div>';
+      precoCel = '<b style="color:'+EM.terra+'">'+brl(it.preco)+'</b><div style="font-size:calc(10.5px * var(--esc));color:'+EM.cinza+';white-space:nowrap">preço negociado</div>';
     } else if(tb !== null && paraCliente && it.preco < tb){
       precoCel = '<b>'+brl(it.preco)+'</b><div style="font-size:calc(10.5px * var(--esc));color:'+EM.verde+';white-space:nowrap;font-weight:700">−'+nm((tb-it.preco)/tb*100,1)+'%</div>';
     }
@@ -7169,7 +7168,7 @@ function emailHtml(ped, paraCliente){
     linhaSoma('Itens · caixas · peso',
       t.itens+' · '+nm(t.cx, t.cx%1?1:0)+' cx · '+nm(t.kg,1)+' kg') +
     linhaSoma('Subtotal', brl(t.bruto)) +
-    (function(){ const dn = descontoNegociado(ped); return dn.valor>0.005 ? linhaSoma('Desconto negociado nos itens (−'+nm(dn.pct,1)+'% sobre a tabela)', '− '+brl(dn.valor), false, EM.verde) : ''; })() +
+    (function(){ if(!paraCliente) return ''; const dn = descontoNegociado(ped); return dn.valor>0.005 ? linhaSoma('Desconto negociado, já aplicado nos preços acima (−'+nm(dn.pct,1)+'% sobre a tabela)', '− '+brl(dn.valor), false, EM.verde) : ''; })() +
     (t.desc>0 ? linhaSoma('Desconto '+vlr(ped.desc).replace(/,00$/,'')+'%',
         '− '+brl(t.desc), false, EM.terra) : '') +
     linhaSoma(ehBonif(ped) ? 'REFERÊNCIA — BONIFICAÇÃO, SEM COBRANÇA' : 'TOTAL DO PEDIDO', brl(t.liquido), true) +
