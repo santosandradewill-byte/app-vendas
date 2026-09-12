@@ -651,7 +651,7 @@ const CFG_PADRAO = {
   metaMes:0, metaCaixas:0,
   diasUteis:'seg-sex',
   condPadrao:'28 dias',
-  prefixo:'REP-',          /* o numero do representante nunca parece numero de compra do cliente */
+  prefixo:'',              /* numero = sigla da industria + sequencia (HAR-0031); prefixo extra so se ele quiser */
   copiaRep:false,          /* copia oculta dos e-mails para o e-mail do representante */
   tabelas:[],              /* tabelas por contrato (simulacao): {id, nome, pct} -> preco = tabela / (1 - pct) */
   pin:'',                  /* PIN de 4 numeros ao abrir (guardado embaralhado); vazio = sem bloqueio */
@@ -713,7 +713,9 @@ D.cfg = Object.assign({}, CFG_PADRAO, D.cfg||{});
 if(!Array.isArray(D.cfg.contatos)) D.cfg.contatos = [];
 /* aparelhos antigos vinham com prefixo vazio: o numero do Anderson (0055) confundia com o do
    cliente na industria. Passa a REP-; os pedidos ja feitos ficam como estao. */
-if(!D.cfg.prefixo && !D.cfg.prefixoDefinido){ D.cfg.prefixo = 'REP-'; D.cfg.prefixoDefinido = true; }
+/* Rodada 21b: o REP- saiu; a sigla da industria ja diz de quem e o pedido (HAR-0031, CAF-0032).
+   Aparelhos que receberam o REP- automatico voltam a vazio; pedidos ja feitos nao mudam. */
+if(!D.cfg.prefixoV2){ if(D.cfg.prefixo==='REP-') D.cfg.prefixo = ''; D.cfg.prefixoDefinido = true; D.cfg.prefixoV2 = true; }
 /* bloqueio por PIN: comeca travado se houver PIN (declarado aqui, antes do primeiro render) */
 let TRAVADO = !!(D.cfg.pin);
 let PIN_ESCONDEU = 0;
@@ -815,12 +817,26 @@ const clientePorId= id  => D.clientes.find(c=>c.id===id) || null;
 const pedidoPorId = id  => D.pedidos.find(p=>p.id===id) || null;
 const pedidoRascunho = () => D.pedidos.find(p=>p.id===D.rascunhoId) || null;
 
+/* Sigla da industria no numero (REP-HAR-0031): no consolidado ele ve de que industria e o
+   pedido so pela sigla. A sequencia (D.seq) e uma so, entao nunca repete entre industrias. */
+function siglaMarca(mk){
+  mk = mk || marcaAtual() || {};
+  if(mk.sigla) return String(mk.sigla).toUpperCase();
+  return sac(mk.nome||'').replace(/[^a-z]/g,'').slice(0,3).toUpperCase();
+}
+function numeroNovoPedidoPrevia(){ const sg = siglaMarca(); return (D.cfg.prefixo||'') + (sg ? sg+'-' : '') + String((D.seq||0)+1).padStart(4,'0'); }
+function numeroNovoPedido(){
+  const sg = siglaMarca();
+  return (D.cfg.prefixo||'') + (sg ? sg+'-' : '') + String(D.seq).padStart(4,'0');
+}
 function novoPedido(clienteId){
   D.seq++;
   const cli = clientePorId(clienteId);
+  const mk = marcaAtual() || {};
   const ped = {
     id: uid(),
-    num: (D.cfg.prefixo||'') + String(D.seq).padStart(4,'0'),
+    num: numeroNovoPedido(),
+    marcaId: mk.id || '', marca: mk.nome || '',   /* carimbo da industria (Coffee Mais depois) */
     clienteId: clienteId||null,
     numCliente:'',              /* nº do pedido/OC no sistema do cliente */
     dataEntrega:'',             /* quando o cliente quer receber */
@@ -843,7 +859,13 @@ function novoPedido(clienteId){
    ele fecha. Rascunho e cancelado ficam de fora. */
 const VALE = st => st==='Fechado' || st==='Enviado' || st==='Faturado';
 const STATUS = ['Rascunho','Fechado','Enviado','Faturado','Cancelado'];
-function pedidosValidos(){ return D.pedidos.filter(p=>VALE(p.status)); }
+/* Tipo do pedido: 'venda' (padrao) ou 'bonificacao'. Bonificacao sai para a industria como
+   pedido sem cobranca e NAO entra no faturamento: no Painel conta como investimento. */
+const ehBonif = p => !!p && (p.tipo||'venda')==='bonificacao';
+const VENDE = p => VALE(p.status) && !ehBonif(p);
+function pedidosValidos(){ return D.pedidos.filter(VENDE); }              /* vendas: o que fatura */
+function pedidosBonif(){ return D.pedidos.filter(p=>VALE(p.status) && ehBonif(p)); }
+function seloTipo(p){ return ehBonif(p) ? '<span class="et et-al">BONIFICAÇÃO</span>' : ''; }
 
 function ultimaCompra(clienteId){
   let u=null;
@@ -1255,15 +1277,26 @@ function blocoDadosPedido(ped){
     '<div class="dica" style="margin-top:6px">O número do cliente é o que a indústria usa na nota; o seu ('+esc(ped.num)+') é controle interno. '+
     (cli.agendamento?'<b>Descarga:</b> '+esc(cli.agendamento):'Entrega em branco = o quanto antes.')+'</div>';
 }
+/* Venda ou bonificacao: sempre nasce venda; ele troca aqui (etapa 1) ou na conferencia */
+function chipsTipoPedido(ped){
+  const b = ehBonif(ped);
+  return '<div class="chips" style="padding-bottom:6px">'+
+    '<button class="chip '+(!b?'on':'')+'" data-a="pedTipo" data-i="venda">Venda</button>'+
+    '<button class="chip '+(b?'on':'')+'" data-a="pedTipo" data-i="bonificacao">Bonificação</button></div>'+
+    (b ? '<div class="aviso" style="margin-bottom:10px">'+ico('alerta')+'<span><b>Bonificação.</b> Sai para a indústria como pedido de bonificação, sem cobrança. '+
+         'Não entra no faturamento do Painel: conta como investimento.</span></div>' : '');
+}
+ACOES.pedTipo = t => { const ped = pedidoRascunho(); if(!ped) return; ped.tipo = (t==='bonificacao') ? 'bonificacao' : 'venda'; gravar(); render(); };
 function blocoFechamento(ped){
   const t = totais(ped);
   return '<div class="corpo">'+
+    chipsTipoPedido(ped)+
     '<div class="dupla">'+
       '<div class="campo mb0"><label>Desconto (%)</label>'+
         '<input type="text" inputmode="decimal" value="'+(ped.desc?vlr(ped.desc).replace(/,00$/,''):'')+
         '" placeholder="0" data-in="desc"></div>'+
       '<div class="campo mb0"><label>Pagamento</label>'+
-        '<input type="text" value="'+esc(ped.cond)+'" list="conds" placeholder="28 dias" data-in="cond"></div>'+
+        selectCond(ped.cond, 'data-in="cond"')+'</div>'+
     '</div>'+
     '<div class="campo mb0 mt10"><label>Observações do pedido</label>'+
       '<textarea placeholder="Entrega, horário de recebimento, pedido de bonificação..." data-in="obs">'+esc(ped.obs)+'</textarea></div>'+
@@ -1449,11 +1482,12 @@ function cartaoClientePedido(ped, cli){
 function telaDadosPedido(ped, cli){
   let h = cartaoClientePedido(ped, cli);
   h += '<div class="secao">Dados do pedido</div><div class="cartao"><div class="corpo">'+
+    chipsTipoPedido(ped)+
     '<div class="campo"><label>Nº do pedido no cliente</label>'+
       '<input type="text" value="'+esc(ped.numCliente||'')+'" data-in="numCli" placeholder="OC / nº do comprador (usar na NF)"></div>'+
     '<div class="dupla">'+
       '<div class="campo"><label>Entrega combinada</label><input type="date" value="'+esc(ped.dataEntrega||'')+'" data-in="dataEnt" min="'+hoje()+'"></div>'+
-      '<div class="campo"><label>Pagamento</label><input type="text" value="'+esc(ped.cond||'')+'" list="conds" placeholder="28 dias" data-in="cond"></div>'+
+      '<div class="campo"><label>Pagamento</label>'+selectCond(ped.cond, 'data-in="cond"')+'</div>'+
     '</div>'+
     '<div class="campo mb0"><label>Observações do pedido</label>'+
       '<textarea placeholder="Entrega, horário de recebimento, bonificação..." data-in="obs">'+esc(ped.obs||'')+'</textarea></div>'+
@@ -1694,7 +1728,11 @@ ENTRADAS.desc = v => {
 };
 ENTRADAS.numCli  = v => { const ped=pedidoRascunho(); if(ped){ ped.numCliente=v; gravar(); } };
 ENTRADAS.dataEnt = v => { const ped=pedidoRascunho(); if(ped){ ped.dataEntrega=v; gravar(); } };
-ENTRADAS.cond = v => { const ped=pedidoRascunho(); if(ped){ ped.cond=v; gravar(); } };
+ENTRADAS.cond = (v, _i, t) => {
+  const ped = pedidoRascunho(); if(!ped) return;
+  if(v==='__outro'){ pedirCondOutra(x=>{ ped.cond = x; gravar(); render(); }, ()=>{ if(t) t.value = ped.cond||''; }); return; }
+  ped.cond = v; gravar();
+};
 /* na conferencia, mudar o desconto refaz o cartao dos itens (totais) sem tirar o foco do campo */
 document.addEventListener('input', e=>{
   if(!(VISTA && VISTA.t==='revisar')) return;
@@ -1853,8 +1891,9 @@ function montarTexto(ped, marcado, paraCliente){
   const t = totais(ped);
   const L = [];
 
-  L.push(b + (paraCliente ? 'CONFIRMAÇÃO DE PEDIDO ' : 'PEDIDO ') + ped.num + ' — ' + nomeMarca().toUpperCase() + b);
+  L.push(b + (ehBonif(ped) ? 'PEDIDO DE BONIFICAÇÃO ' : paraCliente ? 'CONFIRMAÇÃO DE PEDIDO ' : 'PEDIDO ') + ped.num + ' — ' + nomeMarca().toUpperCase() + b);
   L.push(_REGUA);
+  if(ehBonif(ped)) L.push(b+'BONIFICAÇÃO — SEM COBRANÇA (investimento comercial)'+b);
   /* o numero que a industria tem que usar na NF e o do CLIENTE; o nosso e controle interno */
   if(ped.numCliente)  L.push(b+'Nº DO PEDIDO DO CLIENTE (usar na NF): ' + ped.numCliente + b);
   else if(!paraCliente) L.push('Cliente não informou nº de pedido — emitir com o número de vocês.');
@@ -1951,7 +1990,7 @@ function telWa(t){
 function cartaoCabecalhoPedido(ped, cli){
   return '<div class="cartao"><div class="cab">'+ico('doc')+
     '<h2>Pedido '+esc(ped.num)+' · '+dbr(ped.data)+'</h2>'+
-    '<span class="et '+seloStatus(ped.status)+'">'+esc(ped.status)+'</span></div>'+
+    seloTipo(ped)+'<span class="et '+seloStatus(ped.status)+'">'+esc(ped.status)+'</span></div>'+
     '<div class="corpo">'+
       '<div style="font-size:calc(15.5px * var(--esc));font-weight:700;line-height:1.3">'+esc(cli.fantasia||cli.razao||'Sem cliente')+'</div>'+
       '<div class="peq" style="margin-top:3px">'+
@@ -2142,10 +2181,10 @@ ACOES.salvarConferencia = () => {
 /* linhas do painel: so aparecem quando ha pedido conferido no periodo */
 function linhasEntrega(P){
   const f = perFaixa(P);
-  const peds = pedidosValidos().filter(p=>p.conferido && p.data>=f.ini && p.data<=f.fim);
+  const peds = D.pedidos.filter(p=>VALE(p.status) && p.conferido && p.data>=f.ini && p.data<=f.fim);
   if(!peds.length) return '';
   let ent=0, cor=0, pen=0; peds.forEach(p=>{ const t=totais(p); ent+=t.entregue; cor+=t.cortado; pen+=t.pendente; });
-  const aConf = pedidosValidos().filter(p=>precisaConferir(p) && p.data>=f.ini && p.data<=f.fim).length;
+  const aConf = D.pedidos.filter(p=>VALE(p.status) && precisaConferir(p) && p.data>=f.ini && p.data<=f.fim).length;
   return '<tr><td>Entregue (pedidos conferidos)</td><td class="v-verde">'+brl0(ent)+'</td></tr>'+
     (cor>0?'<tr><td>Corte da indústria</td><td class="v-terra">'+brl0(cor)+'</td></tr>':'')+
     (pen>0?'<tr><td>Ainda vai vir</td><td class="v-ambar">'+brl0(pen)+'</td></tr>':'')+
@@ -2170,7 +2209,7 @@ function telaEnviar(){
     '</div>'+
     '<div style="text-align:right"><div style="font-size:calc(20px * var(--esc));font-weight:800;letter-spacing:-.5px">'+
       brl(t.liquido)+'</div>'+
-      '<span class="et '+seloStatus(ped.status)+'">'+esc(ped.status)+'</span></div>'+
+      seloTipo(ped)+'<span class="et '+seloStatus(ped.status)+'">'+esc(ped.status)+'</span></div>'+
     '</div></div>';
 
   h += '<div class="secao">Enviar para a indústria</div>';
@@ -2514,7 +2553,7 @@ function contarSegmentos(lista){
 }
 
 function resumoCliente(id){
-  const ps = D.pedidos.filter(p=>p.clienteId===id && VALE(p.status));
+  const ps = D.pedidos.filter(p=>p.clienteId===id && VENDE(p));
   let total=0, cx=0, kg=0;
   ps.forEach(p=>{ const t=totais(p); total+=t.liquido; cx+=t.cx; kg+=t.kg; });
   const u = ultimaCompra(id);
@@ -2778,7 +2817,7 @@ function telaFormCliente(){
     f('emailXml','E-mail para o XML da nota', c.emailXml,'email','se for diferente do e-mail acima','A indústria manda o XML da NF para cá. Vazio = usa o e-mail principal.','inputmode="email" autocapitalize="off"') +
     f('emailFin','E-mail do financeiro', c.emailFin,'email','redes grandes costumam ter um','Boletos e cobrança. Vazio = não sai na ficha.','inputmode="email" autocapitalize="off"') +
     '<div class="campo mb0"><label>Condição de pagamento</label>'+
-      '<input type="text" id="f_cond" value="'+esc(c.cond||'')+'" list="conds" placeholder="28 dias">'+
+      selectCond(c.cond, 'id="f_cond" data-ch="condSel" data-i="cli"')+
       '<div class="dica">Toque para ver a lista, ou digite o prazo que vocês combinaram.</div></div>'+
   '</div></div>';
 
@@ -2812,6 +2851,41 @@ function telaFormCliente(){
   return h;
 }
 
+/* Pagamento como lista aberta: mostra todas as opcoes (o campo antigo filtrava pelo que
+   estava digitado e escondia os prazos menores). "Outro..." abre um campo para digitar. */
+function selectCond(valor, attrs){
+  const v = valor||'';
+  const ops = CONDS_PAGTO.slice(); if(v && ops.indexOf(v)<0) ops.unshift(v);
+  return '<select '+attrs+'>'+
+    '<option value=""'+(v?'':' selected')+'>— escolher —</option>'+
+    ops.map(o=>'<option value="'+esc(o)+'"'+(o===v?' selected':'')+'>'+esc(o)+'</option>').join('')+
+    '<option value="__outro">Outro… (digitar)</option></select>';
+}
+let COND_CB = null;
+function pedirCondOutra(ok, cancelar){
+  COND_CB = {ok:ok, cancelar:cancelar, feito:false};
+  modal('Condição de pagamento',
+    '<div class="campo mb0"><label>Digite a condição</label><input type="text" id="cond_outra" placeholder="Ex.: 28/42 dias"></div>',
+    '<button class="bt bt-p bt-bloco" data-a="condOutraOk">Usar</button>',
+    ()=>{ if(COND_CB && !COND_CB.feito && COND_CB.cancelar) COND_CB.cancelar(); COND_CB = null; });
+  setTimeout(()=>{ const n=el('cond_outra'); if(n) n.focus(); }, 150);
+}
+ACOES.condOutraOk = () => {
+  const v = ((el('cond_outra')||{}).value || '').trim();
+  if(!v){ aviso('Digite a condição.'); return; }
+  if(COND_CB){ COND_CB.feito = true; COND_CB.ok(v); }
+  fechaModal();
+};
+/* cliente (formulario) e Ajustes: o select guarda a opcao digitada nele mesmo */
+ENTRADAS.condSel = (v, alvo, t) => {
+  if(v==='__outro'){
+    pedirCondOutra(x=>{ const o=document.createElement('option'); o.value=x; o.textContent=x; o.selected=true; t.insertBefore(o, t.options[1]||null);
+                        if(alvo==='cfg'){ D.cfg.condPadrao = x; gravar(); } },
+                   ()=>{ t.value = (alvo==='cfg' ? (D.cfg.condPadrao||'') : ''); });
+    return;
+  }
+  if(alvo==='cfg'){ D.cfg.condPadrao = v; gravar(); }
+};
 const CONDS_PAGTO = ['À vista','PIX à vista','Antecipado','7 dias','10 dias','14 dias','15 dias','21 dias','28 dias','30 dias','35 dias','45 dias','60 dias','7/14 dias','14/21 dias','15/30 dias','21/28 dias','28/35 dias','28/35/42 dias','30/45 dias','30/60 dias','30/45/60 dias','Boleto 30 dias','Boleto 30/60 dias','Consignado'];
 function cepBonito(v){
   const n = soN(v);
@@ -2987,6 +3061,9 @@ function dadosPer(P){
       prods[k].cx  += caixasEquiv(porId[it.skuId], it.un, it.qtd);
     });
   });
+  /* bonificacoes do periodo: investimento, fora do faturamento */
+  const bon = pedidosBonif().filter(p=>p.data>=f.ini && p.data<=f.fim);
+  let bonTotal = 0; bon.forEach(p=>{ bonTotal += totais(p).liquido; });
   const porCanal = {VAREJO:0, FOODSERVICE:0};
   const porSeg = {};
   peds.forEach(p=>{
@@ -3020,6 +3097,7 @@ function dadosPer(P){
     topCli: Object.keys(cliVal).map(k=>({id:k, val:cliVal[k]})).sort((a,b)=>b.val-a.val).slice(0,5),
     porCanal: porCanal,
     porSegmento: porSegmento,
+    bonif: bonTotal, nBonif: bon.length,
     quemComprou: clientes
   };
 }
@@ -3603,7 +3681,8 @@ function painelDoMes(){
     '<div style="display:flex;align-items:baseline;gap:9px;flex-wrap:wrap">'+
       '<div style="font-size:calc(31px * var(--esc));font-weight:800;letter-spacing:-1px;line-height:1" class="'+(c?'v-'+c:'')+'">'+brl0(m.total)+'</div>'+
       (meta>0?'<div class="peq" style="font-weight:650">de '+brl0(meta)+'</div>':'')+
-    '</div>';
+    '</div>'+
+    (m.nBonif ? '<div class="peq" style="margin-top:6px"><b>Bonificação (investimento):</b> '+brl0(m.bonif)+' em '+m.nBonif+' pedido'+(m.nBonif===1?'':'s')+' — fora do faturamento acima.</div>' : '');
   if(meta>0){
     const larg = Math.min(100, pct*100);
     const marco = Math.min(100, (m.uteisTotal? m.uteisAte/m.uteisTotal:0)*100);
@@ -3821,7 +3900,7 @@ function linhaPedido(p, comCliente){
     '</span><span class="sub">'+
       (comCliente?'<span>'+esc(p.num)+'</span>':'')+
       '<span>'+dbr(p.data)+'</span>'+
-      '<span class="et '+seloStatus(p.status)+'">'+esc(p.status)+'</span>'+
+      seloTipo(p)+'<span class="et '+seloStatus(p.status)+'">'+esc(p.status)+'</span>'+
       (p.enviadoEm?'<span>enviado '+horaCurta(p.enviadoEm)+'</span>':(p.fechadoEm?'<span>fechado '+horaCurta(p.fechadoEm)+'</span>':''))+
       (precisaConferir(p)?'<span class="et et-al">a conferir</span>':'')+
       (p.conferido&&t.cortado>0?'<span class="et et-al">corte '+brl0(t.cortado)+'</span>':'')+
@@ -3862,7 +3941,8 @@ function telaHistorico(){
     blocos[blocos.length-1].itens.push(p);
   });
   blocos.forEach(b=>{
-    const soma = b.itens.filter(p=>VALE(p.status)).reduce((s,p)=>s+totais(p).liquido,0);
+    const soma = b.itens.filter(VENDE).reduce((s,p)=>s+totais(p).liquido,0);
+    const bon  = b.itens.filter(p=>VALE(p.status) && ehBonif(p)).reduce((s,p)=>s+totais(p).liquido,0);
     h += '<div class="secao" style="display:flex;justify-content:space-between;align-items:baseline">'+
       '<span>'+esc(mesBonito(b.ym))+'</span>'+
       '<span style="text-transform:none;letter-spacing:0;font-weight:750;color:var(--grafite3)">'+brl0(soma)+'</span></div>'+
@@ -3963,7 +4043,7 @@ const TIPO_XLSX = 'application/vnd.openxmlformats-officedocument.spreadsheetml.s
 function xlsxDoPedido(ped){
   const c = clienteDe(ped) || {}; const t = totais(ped);
   const L = [];
-  L.push([{v:'Pedido '+ped.num+(ped.numCliente?' · pedido do cliente '+ped.numCliente:''), s:'titulo'}]);
+  L.push([{v:(ehBonif(ped)?'BONIFICAÇÃO — ':'')+'Pedido '+ped.num+(ped.numCliente?' · pedido do cliente '+ped.numCliente:''), s:'titulo'}]);
   L.push([{v:nomeMarca(), s:'cinza'}]);
   L.push([]);
   const par = (a,b)=>{ if(b!=null && b!=='') L.push([{v:a,s:'negrito'}, b]); };
@@ -3972,6 +4052,7 @@ function xlsxDoPedido(ped){
   par('Data do pedido', dbr(ped.data));
   par('Entrega combinada', ped.dataEntrega?dbr(ped.dataEntrega):'');
   par('Situação', ped.status);
+  par('Tipo', ehBonif(ped) ? 'Bonificação (sem cobrança)' : 'Venda');
   par('Pagamento', ped.cond||'');
   L.push([]);
   par('Cliente', c.razao||'');
@@ -4034,7 +4115,7 @@ function montarCSV(){
   if(fStatus) lista = lista.filter(p=>p.status===fStatus);
   lista.sort((a,b)=>a.data.localeCompare(b.data));
   if(!lista.length) return null;
-  const cab = ['Pedido','PedidoCliente','Data','DataEntrega','Status','Cliente','Fantasia','Rede','Loja','CNPJ','Canal','Cidade',
+  const cab = ['Pedido','PedidoCliente','Data','DataEntrega','Status','Tipo','Marca','Cliente','Fantasia','Rede','Loja','CNPJ','Canal','Cidade',
     'Codigo','Produto','Unidade','Quantidade','PrecoUnitario','TotalItem',
     'DescontoPct','Pagamento','Observacoes'];
   const linhas = [cab.join(';')];
@@ -4042,7 +4123,7 @@ function montarCSV(){
     const c = clienteDe(p) || {};
     (p.itens||[]).forEach(it=>{
       linhas.push([
-        p.num, p.numCliente||'', dbr(p.data), dbr(p.dataEntrega)||'', p.status, c.razao||'', c.fantasia||'', c.rede||'', c.loja||'', cnpjBonito(c.cnpj)||'',
+        p.num, p.numCliente||'', dbr(p.data), dbr(p.dataEntrega)||'', p.status, ehBonif(p)?'Bonificacao':'Venda', p.marca||nomeMarca(), c.razao||'', c.fantasia||'', c.rede||'', c.loja||'', cnpjBonito(c.cnpj)||'',
         CANAL_NOME[c.canal]||'', c.cidade||'',
         it.cod, it.nome, UN_CURTO[it.un], nm(it.qtd),
         csvNum(it.preco), csvNum(it.preco*it.qtd),
@@ -4107,7 +4188,8 @@ function telaAjustes(){
     '<div class="campo"><label>Empresa / representação</label><input type="text" id="c_repEmpresa" value="'+esc(cfg.repEmpresa)+'" placeholder="Opcional" data-ch="cfg" data-i="repEmpresa"></div>'+
     '<div class="dupla">'+
       '<div class="campo"><label>Seu WhatsApp</label><input type="tel" inputmode="tel" value="'+esc(cfg.repTel?telBonito(cfg.repTel):'')+'" placeholder="(21) 99999-9999" data-ch="cfgTel" data-i="repTel"></div>'+
-      '<div class="campo"><label>Prefixo do pedido</label><input type="text" value="'+esc(cfg.prefixo)+'" placeholder="Ex.: AS-" data-ch="cfg" data-i="prefixo"></div>'+
+      '<div class="campo"><label>Prefixo do pedido (opcional)</label><input type="text" value="'+esc(cfg.prefixo)+'" placeholder="vazio = só a sigla da indústria" data-ch="cfg" data-i="prefixo">'+
+        '<div class="dica">O número sai como sigla da indústria + sequência: <b>'+esc(numeroNovoPedidoPrevia())+'</b>. A sigla se ajusta em Marca / indústria.</div></div>'+
     '</div>'+
     '<div class="campo mb0"><label>Seu e-mail (recebe cópia dos pedidos)</label>'+
       '<input type="email" inputmode="email" autocapitalize="off" value="'+esc(cfg.repEmail)+'" placeholder="voce@email.com" data-ch="cfg" data-i="repEmail"></div>'+
@@ -4190,7 +4272,7 @@ function telaAjustes(){
         '<option value="todos"'+(cfg.diasUteis==='todos'?' selected':'')+'>Todos os dias</option>'+
       '</select></div>'+
     '<div class="campo mb0"><label>Condição de pagamento padrão</label>'+
-      '<input type="text" list="conds" value="'+esc(cfg.condPadrao)+'" placeholder="28 dias" data-ch="cfg" data-i="condPadrao"></div>'+
+      selectCond(cfg.condPadrao, 'data-ch="condSel" data-i="cfg"')+'</div>'+
     '<div class="peq mt10">O semáforo do painel usa estas metas: verde acima do ritmo, âmbar de 85% a 100%, terracota abaixo.</div>'+
   '</div></div>';
 
@@ -4292,6 +4374,12 @@ function telaAjustes(){
     '<b style="color:var(--grafite)">Android:</b> abra no Chrome, toque nos três pontinhos e depois em '+
     '"Adicionar à tela inicial" ou "Instalar app".<br><br>'+
     'Depois de instalado, o app abre sem internet e funciona igual dentro do carro ou na porta do cliente.'+
+    '<hr><b style="color:var(--grafite)">Uso sem internet:</b> '+
+    ((navigator.serviceWorker && navigator.serviceWorker.controller)
+      ? '<span style="color:var(--verde);font-weight:700">app guardado neste aparelho</span> — abre mesmo sem sinal; pedidos, PDF e margem funcionam, e a nuvem recebe quando o sinal voltar.'
+      : '<span style="color:var(--terracota);font-weight:700">ainda não guardado</span> — abra o app uma vez com internet (ou toque em Buscar atualização).')+
+    '<button class="bt bt-l bt-bloco mt10" data-a="appAtualizar">'+ico('repetir')+'Buscar atualização do app</button>'+
+    '<div class="dica">Use quando o Willian avisar que subiu uma versão nova: baixa e reabre na hora.</div>'+
     '</div></div>';
 
   h += '<button class="bt bt-t bt-bloco" data-a="apagarTudo" style="color:var(--terracota);margin-top:6px">'+
@@ -4371,6 +4459,10 @@ ACOES.editarMarca = i => {
       '<div class="campo"><label>Logo, parte 1</label><input type="text" id="mk_l1" value="'+esc(m.logo1||'')+'" placeholder="HARUS"></div>'+
       '<div class="campo"><label>Logo, parte 2 (dourada)</label><input type="text" id="mk_l2" value="'+esc(m.logo2||'')+'" placeholder="+PP"></div>'+
     '</div>'+
+    '<div class="campo"><label>Sigla no número do pedido</label><input type="text" id="mk_sigla" maxlength="4" autocapitalize="characters" value="'+esc(m.sigla||'')+'" placeholder="'+esc(siglaMarca(m)||'HAR')+'">'+
+      '<div class="dica">O próximo pedido sai como <b>'+esc((D.cfg.prefixo||'')+(siglaMarca(m)||'HAR')+'-'+String(D.seq+1).padStart(4,'0'))+'</b>. Pedidos já feitos não mudam.</div></div>'+
+    '<div class="dupla" style="display:none">'+
+    '</div>'+
     '<div class="campo mb0"><label>E-mail de faturamento</label><input type="email" inputmode="email" autocapitalize="off" id="mk_email" value="'+esc(m.emailFat||'')+'" placeholder="pedidos@industria.com.br"></div>'+
     '<div class="peq mt10">'+(m.catalogo==='embutido'
       ? 'Usa a tabela de preços embutida no app.'
@@ -4382,7 +4474,8 @@ ACOES.editarMarca = i => {
 };
 ACOES.salvarMarca = i => {
   const dados = { nome:el('mk_nome').value.trim(), logo1:el('mk_l1').value.trim(),
-                  logo2:el('mk_l2').value.trim(), emailFat:el('mk_email').value.trim() };
+                  logo2:el('mk_l2').value.trim(), emailFat:el('mk_email').value.trim(),
+                  sigla: ((el('mk_sigla')||{}).value||'').toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,4) };
   if(!dados.nome){ aviso('Informe o nome da marca.'); return; }
   if(i==='novo') D.cfg.marcas.push(Object.assign({id:'m'+uid(), catalogo:[]}, dados));
   else Object.assign(D.cfg.marcas[+i], dados);
@@ -5468,7 +5561,7 @@ function pdfDoPedido(ped, paraCliente){
   const mk = marcaAtual();
   const fim = pg.txt(M, y+16, (mk.logo1||mk.nome||'')+' ', {tam:20, negrito:true, cor:GRAFITE_PDF});
   if(mk.logo2) pg.txt(fim, y+16, mk.logo2, {tam:20, negrito:true, cor:DOURADO_PDF});
-  pg.txt(M, y+29, paraCliente ? 'Confirmação de pedido' : 'Pedido de venda', {tam:8, cor:CINZA_PDF});
+  pg.txt(M, y+29, ehBonif(ped) ? 'Pedido de bonificação — sem cobrança' : paraCliente ? 'Confirmação de pedido' : 'Pedido de venda', {tam:8, cor:ehBonif(ped)?DOURADO_PDF:CINZA_PDF});
 
   /* rótulo em cinza + número em negrito, os dois alinhados pela direita */
   function parDireita(yy, rotulo, valor, tamR, tamV){
@@ -6584,6 +6677,7 @@ function assuntoPedido(ped, paraCliente){
   /* o numero que vai na frente e o do CLIENTE (e o que a industria usa na nota);
      o do representante vai no fim, com nome de referencia, para ninguem confundir */
   const partes = [];
+  if(ehBonif(ped)) partes.push('BONIFICAÇÃO');
   if(paraCliente) partes.push('Confirmação de pedido' + (ped.numCliente ? ' ' + ped.numCliente : ''));
   else partes.push(ped.numCliente ? 'Pedido de compra ' + (/^[A-Za-z]/.test(ped.numCliente) ? ped.numCliente : 'nº '+ped.numCliente)
                                   : 'Pedido (sem nº do cliente)');
@@ -6642,7 +6736,9 @@ function emailHtml(ped, paraCliente){
           dbr(ped.dataEntrega)+'</span>':'')+
       '</div>'+
     '</td></tr></table>'+
-    '<div style="height:3px;background:'+EM.dourado+'"></div>';
+    '<div style="height:3px;background:'+EM.dourado+'"></div>'+
+    (ehBonif(ped) ? '<div style="'+fonte+';background:#FFF1C2;color:#8F6908;font-weight:800;font-size:calc(13px * var(--esc));padding:9px 18px;letter-spacing:.3px">'+
+      'PEDIDO DE BONIFICAÇÃO — sem cobrança</div>' : '');
 
   /* cliente */
   const campos = [];
@@ -7302,14 +7398,26 @@ function ligarPWA(){
     document.head.appendChild(l);
   }catch(e){}
 
-  /* Nao ha sw.js no produto: o app e um arquivo unico e funciona offline
-     por ser instalado na tela inicial. A tentativa de registrar um service
-     worker inexistente so gerava erro no console a cada abertura.
-     Se um dia houver sw.js ao lado do app, religar a linha abaixo.
+  /* sw.js ao lado do app (Rodada 20): guarda o app no aparelho para abrir sem internet.
+     Rede primeiro, copia guardada se a rede falhar. Se o arquivo nao existir, fica quieto. */
   if('serviceWorker' in navigator && location.protocol.indexOf('http')===0){
-    navigator.serviceWorker.register('sw.js').catch(()=>{});
-  } */
+    navigator.serviceWorker.register('sw.js').then(reg=>{
+      SW_REG = reg;
+      try{ reg.update(); }catch(e){}
+    }).catch(()=>{});
+  }
 }
+let SW_REG = null;
+/* "Buscar atualizacao": limpa a copia guardada, pede a versao nova e recarrega */
+ACOES.appAtualizar = async () => {
+  aviso('Buscando a versão mais nova...');
+  try{
+    if(navigator.serviceWorker && navigator.serviceWorker.controller) navigator.serviceWorker.controller.postMessage('limpar');
+    if(window.caches){ const ks = await caches.keys(); await Promise.all(ks.map(k=>caches.delete(k))); }
+    if(SW_REG){ await SW_REG.update(); }
+  }catch(e){}
+  setTimeout(()=>{ location.href = location.pathname + '?v=' + Date.now(); }, 400);
+};
 
 /* =====================================================
    PARTIDA
