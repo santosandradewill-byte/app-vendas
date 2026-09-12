@@ -1,0 +1,384 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Painel de vendas</title>
+<style>
+:root{--creme:#FAF7F2;--branco:#fff;--grafite:#2B2926;--cinza:#7A756E;--linha:#E6E0D8;--dourado:#F2A900;--terra:#8A3324;--verde:#1E7A4D;--azul:#2F5F8F;--fundo:#F3EFE8}
+*{box-sizing:border-box}
+body{margin:0;font-family:-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;background:var(--fundo);color:var(--grafite);font-size:14px}
+h1,h2,h3{margin:0}
+.topo{background:var(--grafite);color:var(--creme);padding:12px 20px;display:flex;align-items:center;gap:16px;flex-wrap:wrap;position:sticky;top:0;z-index:5}
+.topo .marca{font-weight:800;letter-spacing:.5px;font-size:16px}
+.topo .marca b{color:var(--dourado)}
+.topo .peq{opacity:.7;font-size:12px}
+.topo .dir{margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+select,input,button{font:inherit}
+select,input{padding:7px 10px;border:1px solid var(--linha);border-radius:8px;background:var(--branco);color:var(--grafite)}
+.topo select{background:#3a3733;color:var(--creme);border-color:#555}
+button{padding:7px 14px;border:0;border-radius:8px;background:var(--dourado);color:var(--grafite);font-weight:700;cursor:pointer}
+button.l{background:transparent;color:var(--creme);border:1px solid #666}
+button.l2{background:var(--branco);color:var(--grafite);border:1px solid var(--linha)}
+.pag{max-width:1280px;margin:0 auto;padding:18px 20px 60px}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-bottom:18px}
+.kpi{background:var(--branco);border:1px solid var(--linha);border-radius:12px;padding:12px 14px}
+.kpi .r{font-size:11.5px;color:var(--cinza);text-transform:uppercase;letter-spacing:.4px}
+.kpi .v{font-size:22px;font-weight:800;margin-top:4px}
+.kpi .s{font-size:12px;color:var(--cinza);margin-top:2px}
+.kpi.dest .v{color:var(--verde)}
+.grade{display:grid;grid-template-columns:repeat(auto-fit,minmax(380px,1fr));gap:14px}
+.cartao{background:var(--branco);border:1px solid var(--linha);border-radius:12px;padding:14px 16px;min-width:0}
+.cartao h3{font-size:13px;text-transform:uppercase;letter-spacing:.4px;color:var(--cinza);margin-bottom:10px;display:flex;justify-content:space-between;align-items:center}
+.cartao h3 span.n{font-weight:500;text-transform:none;letter-spacing:0}
+.cartao.larga{grid-column:1/-1}
+svg{display:block;max-width:100%}
+.barras .lin{display:grid;grid-template-columns:minmax(120px,1.2fr) 4fr 90px;gap:8px;align-items:center;padding:4px 0;font-size:13px}
+.barras .lin .nm{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.barras .lin .b{height:14px;background:var(--linha);border-radius:4px;overflow:hidden}
+.barras .lin .b i{display:block;height:100%;background:var(--dourado)}
+.barras .lin .b i.v{background:var(--verde)}.barras .lin .b i.a{background:var(--azul)}.barras .lin .b i.t{background:var(--terra)}
+.barras .lin .vl{text-align:right;font-weight:700;white-space:nowrap}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{padding:6px 8px;border-bottom:1px solid var(--linha);text-align:left;vertical-align:top}
+th{font-size:11.5px;color:var(--cinza);text-transform:uppercase;letter-spacing:.3px;cursor:pointer;white-space:nowrap}
+td.d,th.d{text-align:right;white-space:nowrap}
+.rol{overflow-x:auto}
+.et{display:inline-block;padding:2px 7px;border-radius:6px;font-size:11px;font-weight:700;background:var(--linha)}
+.et.fe{background:#E3F0E8;color:var(--verde)}.et.en{background:#E3EBF5;color:var(--azul)}.et.fa{background:#FFF1C2;color:#8F6908}.et.ca{background:#F5E2DD;color:var(--terra)}.et.bo{background:#FBE9E4;color:var(--terra)}
+.peq{font-size:12px;color:var(--cinza)}
+.vazio{padding:20px;text-align:center;color:var(--cinza)}
+.login{max-width:440px;margin:60px auto;background:var(--branco);border:1px solid var(--linha);border-radius:14px;padding:22px 24px}
+.login h2{margin-bottom:6px}.login label{display:block;font-size:12px;font-weight:700;margin:12px 0 4px;color:var(--cinza)}
+.login input{width:100%}.login button{width:100%;margin-top:16px;padding:11px}
+.erro{color:var(--terra);font-weight:700;margin-top:10px;font-size:13px}
+.abas{display:flex;gap:6px;margin:0 0 14px;flex-wrap:wrap}
+.abas button{background:var(--branco);color:var(--grafite);border:1px solid var(--linha)}
+.abas button.on{background:var(--grafite);color:var(--creme);border-color:var(--grafite)}
+.filtro{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px}
+.tag{font-size:11px;background:var(--linha);padding:2px 6px;border-radius:5px;margin-left:6px}
+@media print{.topo,.abas,.filtro,button{display:none!important}.pag{padding:0}.grade{grid-template-columns:1fr 1fr}body{background:#fff}}
+@media (max-width:600px){.barras .lin{grid-template-columns:100px 1fr 80px}.kpi .v{font-size:19px}}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script>
+(function(){
+'use strict';
+/* =========================================================
+   PAINEL DE VENDAS — lê a nuvem (Supabase) com login de gestor/suporte.
+   Arquivo único, sem biblioteca. Nada de preço, cliente ou chave fica aqui:
+   a chave é colada uma vez neste navegador; os dados vêm da nuvem a cada abertura.
+   ========================================================= */
+const VERSAO = '2026-09-12 p2';
+const K = 'painel.sessao.v1';
+const NUVEM_URL = 'https://wzymaphljtwaoikyyqrk.supabase.co';   /* endereco (nao e segredo) */
+let S = null;          /* {chave, access_token, refresh_token, expires_at, email} */
+let DADOS = null;      /* {pedidos, clientes, vendedores, quem} */
+let F = { per:'mes', vend:'', tipo:'venda', aba:'visao', busca:'', ord:'data', dir:-1 };
+const el = id => document.getElementById(id);
+const esc = s => String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const brl = v => 'R$ '+(Number(v)||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+const nm = (v,d) => (Number(v)||0).toLocaleString('pt-BR',{minimumFractionDigits:d||0,maximumFractionDigits:d||0});
+const dbr = iso => iso ? iso.slice(8,10)+'/'+iso.slice(5,7)+'/'+iso.slice(0,4) : '';
+const MESES = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+const hoje = () => new Date().toISOString().slice(0,10);
+const sac = t => String(t||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase();
+
+try{ S = JSON.parse(localStorage.getItem(K)||'null'); }catch(e){ S = null; }
+
+/* ---------- nuvem ---------- */
+async function api(caminho, corpo, semAuth, metodo, extra){
+  const cab = Object.assign({ 'apikey': S.chave, 'Content-Type':'application/json' }, extra||{});
+  if(!semAuth) cab['Authorization'] = 'Bearer '+S.access_token;
+  const met = metodo || 'POST';
+  const r = await fetch(NUVEM_URL+caminho, met==='GET' ? {method:'GET', headers:cab} : {method:met, headers:cab, body:JSON.stringify(corpo||{})});
+  const txt = await r.text(); let js = null; try{ js = txt ? JSON.parse(txt) : null; }catch(e){ js = txt; }
+  if(!r.ok){ const e = new Error((js && (js.message||js.msg||js.error_description||js.error)) || ('HTTP '+r.status)); e.status = r.status; throw e; }
+  return js;
+}
+async function renovar(){
+  if(!S || !S.refresh_token) return;
+  if((S.expires_at||0) - Math.floor(Date.now()/1000) > 90) return;
+  const js = await api('/auth/v1/token?grant_type=refresh_token', {refresh_token:S.refresh_token}, true);
+  S.access_token = js.access_token; S.refresh_token = js.refresh_token; S.expires_at = Math.floor(Date.now()/1000)+(js.expires_in||3600);
+  localStorage.setItem(K, JSON.stringify(S));
+}
+async function entrar(chave, email, senha){
+  S = { chave: chave.trim() };
+  const js = await api('/auth/v1/token?grant_type=password', {email:email.trim(), password:senha}, true);
+  S.access_token = js.access_token; S.refresh_token = js.refresh_token; S.expires_at = Math.floor(Date.now()/1000)+(js.expires_in||3600); S.email = email.trim();
+  localStorage.setItem(K, JSON.stringify(S));
+}
+function sair(){ localStorage.removeItem(K); S = null; DADOS = null; render(); }
+async function carregar(){
+  await renovar();
+  const quem = await api('/rest/v1/rpc/quem_sou', {});
+  const cab = {'Range':'0-49999','Prefer':'count=exact'};
+  const [pedidos, clientes, vendedores] = await Promise.all([
+    api('/rest/v1/pedidos?select=id,num,status,data,total,kg,cx,vendedor_id,vendedor_codigo,cliente_id,dados,apagado&apagado=is.false&order=data.desc', null, false, 'GET', cab),
+    api('/rest/v1/clientes?select=id,razao,fantasia,rede,loja,canal,bairro,cidade,vendedor_id,dados,apagado', null, false, 'GET', cab),
+    api('/rest/v1/vendedores?select=id,nome,codigo,gestor,ativo', null, false, 'GET')
+  ]);
+  /* clientes apagados no celular ficam so para dar nome a pedidos antigos; a carteira conta so os vivos */
+  DADOS = { quem, pedidos: pedidos.map(prep), clientes, carteira: clientes.filter(c=>!c.apagado), vendedores, quando: new Date() };
+}
+/* normaliza um pedido: o que conta vem de dados (o pedido inteiro, como no celular) */
+function prep(p){
+  const d = p.dados || {};
+  const itens = (d.itens||[]).map(it=>({ cod: it.cod, nome: it.nome, un: it.un, qtd: Number(it.qtd)||0, preco: Number(it.preco)||0 }));
+  const bruto = itens.reduce((s,it)=>s+it.qtd*it.preco, 0);
+  const liq = bruto * (1 - (Number(d.desc)||0)/100);
+  return { id:p.id, num:p.num||d.num, status:p.status||d.status, data:p.data||d.data, total: Number(p.total)||liq, kg:Number(p.kg)||0, cx:Number(p.cx)||0,
+           vendedor_id:p.vendedor_id, vendedor_codigo:p.vendedor_codigo, cliente_id:p.cliente_id, tipo:(d.tipo||'venda'), marca:d.marca||'', numCliente:d.numCliente||'', itens, cond:d.cond||'' };
+}
+const VALE = st => st==='Fechado' || st==='Enviado' || st==='Faturado';
+
+/* ---------- filtros ---------- */
+function periodo(){
+  const h = new Date(); const y = h.getFullYear(), m = h.getMonth();
+  const iso = d => d.toISOString().slice(0,10);
+  const ini = { mes: new Date(y,m,1), m3: new Date(y,m-2,1), m6: new Date(y,m-5,1), m12: new Date(y,m-11,1), ano: new Date(y,0,1), tudo: new Date(2000,0,1) }[F.per];
+  const fim = F.per==='mes' ? new Date(y,m+1,0) : h;
+  return { ini: iso(ini), fim: iso(fim) };
+}
+function pedidosFiltrados(){
+  const per = periodo();
+  return DADOS.pedidos.filter(p => VALE(p.status) && p.data>=per.ini && p.data<=per.fim && (!F.vend || p.vendedor_id===F.vend));
+}
+const vendas = () => pedidosFiltrados().filter(p=>p.tipo!=='bonificacao');
+const bonifs = () => pedidosFiltrados().filter(p=>p.tipo==='bonificacao');
+const cliDe = id => DADOS.clientes.find(c=>c.id===id) || {};
+const nomeCli = c => c.fantasia || c.razao || '—';
+const vendDe = id => DADOS.vendedores.find(v=>v.id===id) || {};
+
+/* ---------- graficos (SVG na mao) ---------- */
+function barrasV(serie, opc){
+  /* serie: [{rot, v, v2}] — colunas verticais; v2 = serie secundaria (ex.: ano anterior) */
+  const W = 720, H = 190, px = 34, py = 14, pb = 28;
+  const max = Math.max(1, ...serie.map(s=>Math.max(s.v||0, s.v2||0)));
+  const n = serie.length, lw = (W-px-10)/n, bw = Math.min(34, lw*0.55);
+  const y = v => py + (H-py-pb) * (1 - v/max);
+  let h = '<svg viewBox="0 0 '+W+' '+H+'" role="img">';
+  [0,0.5,1].forEach(f=>{ const yy = y(max*f); h += '<line x1="'+px+'" x2="'+W+'" y1="'+yy.toFixed(1)+'" y2="'+yy.toFixed(1)+'" stroke="#E6E0D8"/>'+
+    '<text x="'+(px-4)+'" y="'+(yy+4).toFixed(1)+'" font-size="10" fill="#7A756E" text-anchor="end">'+(opc&&opc.kg? nm(max*f/1000,1)+'t' : 'R$'+nm(max*f/1000,0)+'k')+'</text>'; });
+  serie.forEach((s,i)=>{
+    const x = px + i*lw + lw/2;
+    if(s.v2){ h += '<rect x="'+(x-bw/2-3).toFixed(1)+'" y="'+y(s.v2).toFixed(1)+'" width="'+bw.toFixed(1)+'" height="'+(H-pb-y(s.v2)).toFixed(1)+'" fill="#E6E0D8" rx="3"/>'; }
+    h += '<rect x="'+(x-bw/2).toFixed(1)+'" y="'+y(s.v).toFixed(1)+'" width="'+bw.toFixed(1)+'" height="'+(H-pb-y(s.v)).toFixed(1)+'" fill="'+(s.cor||'#F2A900')+'" rx="3"><title>'+esc(s.rot)+': '+brl(s.v)+'</title></rect>';
+    if(s.v>0) h += '<text x="'+x.toFixed(1)+'" y="'+(y(s.v)-4).toFixed(1)+'" font-size="10" fill="#2B2926" text-anchor="middle" font-weight="700">'+(opc&&opc.kg? nm(s.v/1000,1) : nm(s.v/1000,0)+'k')+'</text>';
+    h += '<text x="'+x.toFixed(1)+'" y="'+(H-10)+'" font-size="11" fill="#7A756E" text-anchor="middle">'+esc(s.rot)+'</text>';
+  });
+  return h+'</svg>';
+}
+function barrasH(lista, opc){
+  /* lista: [{nm, v, sub}] ordenada; barra horizontal com valor a direita */
+  if(!lista.length) return '<div class="vazio">Sem dados no período.</div>';
+  const max = Math.max(1, ...lista.map(x=>x.v));
+  const fmt = (opc&&opc.fmt) || brl;
+  return '<div class="barras">'+lista.map(x=>'<div class="lin"><span class="nm" title="'+esc(x.nm)+'">'+esc(x.nm)+(x.sub?'<span class="tag">'+esc(x.sub)+'</span>':'')+'</span>'+
+    '<span class="b"><i class="'+(opc&&opc.cls||'')+'" style="width:'+(x.v/max*100).toFixed(1)+'%"></i></span><span class="vl">'+fmt(x.v)+'</span></div>').join('')+'</div>';
+}
+function agrupar(peds, chave, valor){
+  const m = {}; peds.forEach(p=>{ const k = chave(p); if(k==null) return; m[k] = (m[k]||0) + (valor ? valor(p) : p.total); });
+  return Object.keys(m).map(k=>({nm:k, v:m[k]})).sort((a,b)=>b.v-a.v);
+}
+
+/* ---------- telas ---------- */
+function telaLogin(msg){
+  return '<div class="login"><h2>Painel de vendas</h2><div class="peq">Entre com o login de gestor ou suporte. A chave e a senha ficam só neste navegador.</div>'+
+    '<label>Chave da nuvem (sb_publishable_…)</label><input id="l_chave" placeholder="cole aqui" value="'+esc(S&&S.chave||'')+'">'+
+    '<label>E-mail</label><input id="l_email" type="email" value="'+esc(S&&S.email||'')+'">'+
+    '<label>Senha</label><input id="l_senha" type="password">'+
+    '<button id="l_ok">Entrar</button>'+(msg?'<div class="erro">'+esc(msg)+'</div>':'')+
+    '<div class="peq" style="margin-top:14px">Painel · versão '+VERSAO+'</div></div>';
+}
+function topo(){
+  const q = DADOS.quem||{};
+  return '<div class="topo"><span class="marca">PAINEL <b>'+esc(q.empresa||'')+'</b></span>'+
+    '<span class="peq">'+esc(q.vendedor||'')+(q.gestor?' · gestor':'')+' · atualizado '+DADOS.quando.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})+'</span>'+
+    '<div class="dir">'+
+    '<select id="f_per"><option value="mes">Este mês</option><option value="m3">Últimos 3 meses</option><option value="m6">Últimos 6 meses</option><option value="m12">Últimos 12 meses</option><option value="ano">Este ano</option><option value="tudo">Tudo</option></select>'+
+    '<select id="f_vend"><option value="">Todos os vendedores</option>'+DADOS.vendedores.filter(v=>v.codigo!==(DADOS.quem||{}).codigo).map(v=>'<option value="'+v.id+'">'+esc(v.nome)+' ('+esc(v.codigo)+')</option>').join('')+'</select>'+
+    '<button class="l" id="b_rec">Atualizar</button><button class="l" id="b_print">Imprimir</button><button class="l" id="b_sair">Sair</button></div></div>';
+}
+function abas(){
+  const A = [['visao','Visão geral'],['clientes','Clientes'],['produtos','Produtos'],['pedidos','Pedidos'],['rota','Sem comprar']];
+  return '<div class="abas">'+A.map(a=>'<button class="'+(F.aba===a[0]?'on':'')+'" data-aba="'+a[0]+'">'+a[1]+'</button>').join('')+'</div>';
+}
+function kpis(){
+  const V = vendas(), B = bonifs();
+  const fat = V.reduce((s,p)=>s+p.total,0), cx = V.reduce((s,p)=>s+p.cx,0), kg = V.reduce((s,p)=>s+p.kg,0);
+  const cliAtivos = new Set(V.map(p=>p.cliente_id)).size;
+  const carteira = DADOS.carteira.filter(c=>!F.vend || c.vendedor_id===F.vend).length;
+  const inv = B.reduce((s,p)=>s+p.total,0);
+  const per = periodo(); const canc = DADOS.pedidos.filter(p=>p.status==='Cancelado' && p.data>=per.ini && p.data<=per.fim && (!F.vend||p.vendedor_id===F.vend)).length;
+  const k = (r,v,s,cls) => '<div class="kpi '+(cls||'')+'"><div class="r">'+r+'</div><div class="v">'+v+'</div>'+(s?'<div class="s">'+s+'</div>':'')+'</div>';
+  return '<div class="kpis">'+
+    k('Faturamento (vendas)', brl(fat), V.length+' pedido'+(V.length===1?'':'s'), 'dest')+
+    k('Ticket médio', brl(V.length?fat/V.length:0), 'por pedido')+
+    k('Volume', nm(cx,0)+' cx', nm(kg/1000,2)+' t')+
+    k('Positivação', cliAtivos+' / '+carteira, carteira? nm(cliAtivos/carteira*100,0)+'% da carteira compraram' : '')+
+    k('Bonificação', brl(inv), B.length+' pedido'+(B.length===1?'':'s')+' · investimento')+
+    k('Cancelados', String(canc), 'no período')+
+  '</div>';
+}
+function serieMensal(){
+  const h = new Date(); const out = [];
+  for(let i=11;i>=0;i--){
+    const d = new Date(h.getFullYear(), h.getMonth()-i, 1); const ym = d.toISOString().slice(0,7);
+    const dA = new Date(d.getFullYear()-1, d.getMonth(), 1); const ymA = dA.toISOString().slice(0,7);
+    const V = DADOS.pedidos.filter(p=>VALE(p.status) && p.tipo!=='bonificacao' && (!F.vend||p.vendedor_id===F.vend));
+    out.push({ rot: MESES[d.getMonth()]+(d.getMonth()===0||i===11?'/'+String(d.getFullYear()).slice(2):''),
+               v: V.filter(p=>p.data.slice(0,7)===ym).reduce((s,p)=>s+p.total,0),
+               v2: V.filter(p=>p.data.slice(0,7)===ymA).reduce((s,p)=>s+p.total,0) });
+  }
+  return out;
+}
+function cartao(titulo, corpo, cls, extra){ return '<div class="cartao '+(cls||'')+'"><h3>'+titulo+(extra?'<span class="n">'+extra+'</span>':'')+'</h3>'+corpo+'</div>'; }
+function telaVisao(){
+  const V = vendas();
+  const porVend = agrupar(V, p=>vendDe(p.vendedor_id).nome || p.vendedor_codigo || '—');
+  const porCanal = agrupar(V, p=>({VAREJO:'Varejo',FOODSERVICE:'Food Service'}[cliDe(p.cliente_id).canal] || 'Sem canal'));
+  const porTipo = agrupar(V, p=>(cliDe(p.cliente_id).dados||{}).segmento || 'Sem tipo');
+  const porMarca = agrupar(V, p=>p.marca || 'Marca única');
+  const porCidade = agrupar(V, p=>cliDe(p.cliente_id).cidade || 'Sem cidade');
+  return kpis()+'<div class="grade">'+
+    cartao('Venda por mês', barrasV(serieMensal()), 'larga', 'barra cinza = mesmo mês do ano anterior')+
+    cartao('Por vendedor', barrasH(porVend))+
+    cartao('Por canal', barrasH(porCanal, {cls:'a'}))+
+    cartao('Por tipo de negócio', barrasH(porTipo.slice(0,10), {cls:'v'}))+
+    cartao('Por marca / indústria', barrasH(porMarca, {cls:'t'}))+
+    cartao('Por cidade', barrasH(porCidade.slice(0,10)))+
+    cartao('Top 10 clientes', barrasH(agrupar(V, p=>nomeCli(cliDe(p.cliente_id))).slice(0,10), {cls:'v'}))+
+  '</div>';
+}
+function telaClientes(){
+  const V = vendas(); const m = {};
+  V.forEach(p=>{ const c = cliDe(p.cliente_id); const k = p.cliente_id; if(!m[k]) m[k] = {c, v:0, n:0, cx:0, ult:''}; m[k].v += p.total; m[k].n++; m[k].cx += p.cx; if(p.data>m[k].ult) m[k].ult = p.data; });
+  let L = Object.values(m); const q = sac(F.busca);
+  if(q) L = L.filter(x=>sac(nomeCli(x.c)+' '+(x.c.razao||'')+' '+(x.c.bairro||'')+' '+(x.c.rede||'')).indexOf(q)>-1);
+  L.sort((a,b)=>b.v-a.v);
+  const tot = L.reduce((s,x)=>s+x.v,0);
+  return kpis()+'<div class="cartao"><div class="filtro"><input id="f_busca" placeholder="buscar cliente, bairro, rede" value="'+esc(F.busca)+'"><span class="peq">'+L.length+' clientes com compra no período · '+brl(tot)+'</span><button class="l2" id="b_csv_cli">Baixar CSV</button></div>'+
+    '<div class="rol"><table><thead><tr><th>Cliente</th><th>Rede</th><th>Bairro / cidade</th><th>Canal · tipo</th><th>Vendedor</th><th class="d">Pedidos</th><th class="d">Caixas</th><th class="d">Total</th><th class="d">% </th><th class="d">Última compra</th></tr></thead><tbody>'+
+    L.map(x=>'<tr><td><b>'+esc(nomeCli(x.c))+'</b><div class="peq">'+esc(x.c.razao||'')+'</div></td><td>'+esc(x.c.rede||'')+(x.c.loja?' · '+esc(x.c.loja):'')+'</td><td>'+esc([x.c.bairro,x.c.cidade].filter(Boolean).join(' — '))+'</td>'+
+      '<td>'+({VAREJO:'Varejo',FOODSERVICE:'Food'}[x.c.canal]||'')+(((x.c.dados||{}).segmento)?' · '+esc(x.c.dados.segmento):'')+'</td><td>'+esc(vendDe(x.c.vendedor_id).nome||'')+'</td>'+
+      '<td class="d">'+x.n+'</td><td class="d">'+nm(x.cx,0)+'</td><td class="d"><b>'+brl(x.v)+'</b></td><td class="d">'+(tot?nm(x.v/tot*100,1):'0')+'%</td><td class="d">'+dbr(x.ult)+'</td></tr>').join('')+
+    '</tbody></table></div></div>';
+}
+function telaProdutos(){
+  const V = vendas(); const m = {};
+  V.forEach(p=>p.itens.forEach(it=>{ const k = (it.cod||'')+'|'+it.nome; if(!m[k]) m[k] = {cod:it.cod, nome:it.nome, v:0, q:0, cli:new Set(), n:0}; m[k].v += it.qtd*it.preco; m[k].q += it.qtd; m[k].cli.add(p.cliente_id); m[k].n++; }));
+  const L = Object.values(m).sort((a,b)=>b.v-a.v); const tot = L.reduce((s,x)=>s+x.v,0);
+  return kpis()+'<div class="grade">'+
+    cartao('Top 10 produtos por valor', barrasH(L.slice(0,10).map(x=>({nm:x.nome, v:x.v, sub:x.cod}))))+
+    cartao('Top 10 produtos por caixas', barrasH(L.slice().sort((a,b)=>b.q-a.q).slice(0,10).map(x=>({nm:x.nome, v:x.q, sub:x.cod})), {fmt:v=>nm(v,0)+' cx', cls:'a'}))+
+    '<div class="cartao larga"><h3>Todos os produtos vendidos<span class="n">'+L.length+' itens · '+brl(tot)+'</span></h3><div class="rol"><table><thead><tr><th>Cód.</th><th>Produto</th><th class="d">Caixas</th><th class="d">Pedidos</th><th class="d">Clientes</th><th class="d">Preço médio cx</th><th class="d">Total</th><th class="d">%</th></tr></thead><tbody>'+
+    L.map(x=>'<tr><td>'+esc(x.cod||'')+'</td><td>'+esc(x.nome)+'</td><td class="d">'+nm(x.q,0)+'</td><td class="d">'+x.n+'</td><td class="d">'+x.cli.size+'</td><td class="d">'+brl(x.q?x.v/x.q:0)+'</td><td class="d"><b>'+brl(x.v)+'</b></td><td class="d">'+(tot?nm(x.v/tot*100,1):'0')+'%</td></tr>').join('')+
+    '</tbody></table></div></div></div>';
+}
+function telaPedidos(){
+  const per = periodo(); const q = sac(F.busca);
+  let L = DADOS.pedidos.filter(p=>p.data>=per.ini && p.data<=per.fim && (!F.vend||p.vendedor_id===F.vend) && (F.tipo==='todos' || (F.tipo==='bonif' ? p.tipo==='bonificacao' : p.tipo!=='bonificacao')));
+  if(q) L = L.filter(p=>sac(p.num+' '+p.numCliente+' '+nomeCli(cliDe(p.cliente_id))+' '+(cliDe(p.cliente_id).razao||'')).indexOf(q)>-1);
+  const chave = { data:p=>p.data, num:p=>p.num, cliente:p=>nomeCli(cliDe(p.cliente_id)), total:p=>p.total, status:p=>p.status, vend:p=>vendDe(p.vendedor_id).nome||'' }[F.ord] || (p=>p.data);
+  L.sort((a,b)=>{ const x = chave(a), y = chave(b); return (x>y?1:x<y?-1:0)*F.dir; });
+  const cls = st => ({Fechado:'fe',Enviado:'en',Faturado:'fa',Cancelado:'ca'}[st]||'');
+  const th = (k,r,d) => '<th class="'+(d?'d':'')+'" data-ord="'+k+'">'+r+(F.ord===k?(F.dir>0?' ▲':' ▼'):'')+'</th>';
+  return '<div class="cartao"><div class="filtro"><input id="f_busca" placeholder="buscar nº, cliente, OC" value="'+esc(F.busca)+'">'+
+    '<select id="f_tipo"><option value="venda"'+(F.tipo==='venda'?' selected':'')+'>Vendas</option><option value="bonif"'+(F.tipo==='bonif'?' selected':'')+'>Bonificações</option><option value="todos"'+(F.tipo==='todos'?' selected':'')+'>Tudo</option></select>'+
+    '<span class="peq">'+L.length+' pedidos · '+brl(L.filter(p=>VALE(p.status)).reduce((s,p)=>s+p.total,0))+' (válidos)</span><button class="l2" id="b_csv_ped">Baixar CSV</button><button class="l2" id="b_csv_itens">CSV com itens</button></div>'+
+    '<div class="rol"><table><thead><tr>'+th('num','Nº')+th('data','Data')+th('cliente','Cliente')+th('vend','Vendedor')+'<th>Tipo</th>'+th('status','Situação')+'<th class="d">Cx</th>'+th('total','Total',1)+'<th>Itens</th></tr></thead><tbody>'+
+    L.map(p=>{ const c = cliDe(p.cliente_id); return '<tr><td><b>'+esc(p.num)+'</b>'+(p.numCliente?'<div class="peq">OC '+esc(p.numCliente)+'</div>':'')+'</td><td class="d">'+dbr(p.data)+'</td><td>'+esc(nomeCli(c))+'<div class="peq">'+esc([c.bairro,c.cidade].filter(Boolean).join(' — '))+'</div></td><td>'+esc(vendDe(p.vendedor_id).nome||p.vendedor_codigo||'')+'</td>'+
+      '<td>'+(p.tipo==='bonificacao'?'<span class="et bo">bonificação</span>':'venda')+'</td><td><span class="et '+cls(p.status)+'">'+esc(p.status)+'</span></td><td class="d">'+nm(p.cx,0)+'</td><td class="d"><b>'+brl(p.total)+'</b></td>'+
+      '<td class="peq">'+p.itens.map(it=>esc(it.cod)+' × '+nm(it.qtd,0)).join(', ')+'</td></tr>'; }).join('')+
+    '</tbody></table></div></div>';
+}
+function telaRota(){
+  /* clientes sem comprar ha X dias, por bairro: rota de visita */
+  const dias = Number(F.dias||30); const lim = new Date(Date.now()-dias*86400000).toISOString().slice(0,10);
+  const ult = {}; DADOS.pedidos.filter(p=>VALE(p.status) && p.tipo!=='bonificacao').forEach(p=>{ if(!ult[p.cliente_id] || p.data>ult[p.cliente_id]) ult[p.cliente_id] = p.data; });
+  const L = DADOS.carteira.filter(c=>(!F.vend||c.vendedor_id===F.vend) && (!ult[c.id] || ult[c.id]<lim)).map(c=>({c, ult:ult[c.id]||'', dias: ult[c.id]? Math.floor((Date.now()-new Date(ult[c.id]).getTime())/86400000) : null}));
+  const porBairro = {}; L.forEach(x=>{ const k = [x.c.bairro||'Sem bairro', x.c.cidade||''].filter(Boolean).join(' — '); (porBairro[k] = porBairro[k]||[]).push(x); });
+  const chaves = Object.keys(porBairro).sort((a,b)=>porBairro[b].length-porBairro[a].length);
+  return '<div class="cartao"><div class="filtro"><span>Clientes sem comprar há</span><select id="f_dias">'+[15,30,45,60,90,120].map(d=>'<option value="'+d+'"'+(d===dias?' selected':'')+'>'+d+' dias</option>').join('')+'</select><span class="peq">'+L.length+' clientes · agrupados por bairro para montar a rota</span><button class="l2" id="b_csv_rota">Baixar CSV</button></div>'+
+    (L.length ? chaves.map(k=>'<h3 style="margin:14px 0 6px;font-size:13px">'+esc(k)+' <span class="tag">'+porBairro[k].length+'</span></h3><div class="rol"><table><thead><tr><th>Cliente</th><th>Contato</th><th>Vendedor</th><th class="d">Última compra</th><th class="d">Dias</th></tr></thead><tbody>'+
+      porBairro[k].sort((a,b)=>(b.dias||9999)-(a.dias||9999)).map(x=>'<tr><td><b>'+esc(nomeCli(x.c))+'</b><div class="peq">'+esc(x.c.razao||'')+'</div></td><td class="peq">'+esc([(x.c.dados||{}).contato, (x.c.dados||{}).fone].filter(Boolean).join(' · '))+'</td><td>'+esc(vendDe(x.c.vendedor_id).nome||'')+'</td><td class="d">'+(x.ult?dbr(x.ult):'nunca comprou')+'</td><td class="d">'+(x.dias==null?'—':x.dias)+'</td></tr>').join('')+
+      '</tbody></table></div>').join('') : '<div class="vazio">Todo mundo comprou nos últimos '+dias+' dias.</div>')+'</div>';
+}
+
+/* ---------- CSV ---------- */
+function baixar(nome, texto){
+  const b = new Blob(['﻿'+texto], {type:'text/csv;charset=utf-8'}); const a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = nome; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href), 2000);
+}
+const csvCel = v => { const s = String(v==null?'':v); return /[";\n]/.test(s) ? '"'+s.replace(/"/g,'""')+'"' : s; };
+const csvNum = v => String(Math.round((Number(v)||0)*100)/100).replace('.',',');
+function csvPedidos(comItens){
+  const per = periodo(); const L = DADOS.pedidos.filter(p=>p.data>=per.ini && p.data<=per.fim && (!F.vend||p.vendedor_id===F.vend));
+  const linhas = [];
+  if(comItens){
+    linhas.push(['Pedido','OC cliente','Data','Situacao','Tipo','Vendedor','Cliente','Razao social','CNPJ','Bairro','Cidade','Canal','Cod produto','Produto','Un','Qtd','Preco','Total item']);
+    L.forEach(p=>{ const c = cliDe(p.cliente_id); p.itens.forEach(it=>linhas.push([p.num,p.numCliente,dbr(p.data),p.status,p.tipo,vendDe(p.vendedor_id).nome||p.vendedor_codigo,nomeCli(c),c.razao,(c.dados||{}).cnpj||'',c.bairro,c.cidade,c.canal,it.cod,it.nome,it.un,csvNum(it.qtd),csvNum(it.preco),csvNum(it.qtd*it.preco)])); });
+  } else {
+    linhas.push(['Pedido','OC cliente','Data','Situacao','Tipo','Vendedor','Cliente','Razao social','Bairro','Cidade','Canal','Caixas','Kg','Total','Pagamento']);
+    L.forEach(p=>{ const c = cliDe(p.cliente_id); linhas.push([p.num,p.numCliente,dbr(p.data),p.status,p.tipo,vendDe(p.vendedor_id).nome||p.vendedor_codigo,nomeCli(c),c.razao,c.bairro,c.cidade,c.canal,csvNum(p.cx),csvNum(p.kg),csvNum(p.total),p.cond]); });
+  }
+  baixar('pedidos'+(comItens?'_itens':'')+'_'+per.ini+'_'+per.fim+'.csv', linhas.map(l=>l.map(csvCel).join(';')).join('\n'));
+}
+function csvClientes(){
+  const V = vendas(); const m = {}; V.forEach(p=>{ const k = p.cliente_id; if(!m[k]) m[k] = {v:0,n:0,cx:0,ult:''}; m[k].v += p.total; m[k].n++; m[k].cx += p.cx; if(p.data>m[k].ult) m[k].ult = p.data; });
+  const linhas = [['Cliente','Razao social','CNPJ','Rede','Bairro','Cidade','Canal','Tipo','Vendedor','Pedidos','Caixas','Total','Ultima compra']];
+  DADOS.clientes.forEach(c=>{ const x = m[c.id]; if(!x) return; linhas.push([nomeCli(c),c.razao,(c.dados||{}).cnpj||'',c.rede,c.bairro,c.cidade,c.canal,(c.dados||{}).segmento||'',vendDe(c.vendedor_id).nome||'',x.n,csvNum(x.cx),csvNum(x.v),dbr(x.ult)]); });
+  baixar('clientes_'+periodo().ini+'.csv', linhas.map(l=>l.map(csvCel).join(';')).join('\n'));
+}
+function csvRota(){
+  const dias = Number(F.dias||30); const lim = new Date(Date.now()-dias*86400000).toISOString().slice(0,10);
+  const ult = {}; DADOS.pedidos.filter(p=>VALE(p.status) && p.tipo!=='bonificacao').forEach(p=>{ if(!ult[p.cliente_id] || p.data>ult[p.cliente_id]) ult[p.cliente_id] = p.data; });
+  const linhas = [['Bairro','Cidade','Cliente','Razao social','Contato','Telefone','Vendedor','Ultima compra']];
+  DADOS.carteira.filter(c=>(!F.vend||c.vendedor_id===F.vend) && (!ult[c.id] || ult[c.id]<lim)).forEach(c=>linhas.push([c.bairro,c.cidade,nomeCli(c),c.razao,(c.dados||{}).contato||'',(c.dados||{}).fone||'',vendDe(c.vendedor_id).nome||'',ult[c.id]?dbr(ult[c.id]):'nunca']));
+  baixar('sem_comprar_'+dias+'d.csv', linhas.map(l=>l.map(csvCel).join(';')).join('\n'));
+}
+
+/* ---------- render ---------- */
+let ERRO = '';
+function render(){
+  const app = el('app');
+  if(!S || !S.access_token){ app.innerHTML = telaLogin(ERRO); el('l_ok').onclick = aoEntrar; el('l_senha').onkeydown = e=>{ if(e.key==='Enter') aoEntrar(); }; return; }
+  if(!DADOS){ app.innerHTML = '<div class="vazio" style="padding:60px">Carregando a nuvem…</div>'+(ERRO?'<div class="erro" style="text-align:center">'+esc(ERRO)+' <button class="l2" id="b_sair2">Sair</button></div>':''); const b = el('b_sair2'); if(b) b.onclick = sair; return; }
+  const tela = { visao:telaVisao, clientes:telaClientes, produtos:telaProdutos, pedidos:telaPedidos, rota:telaRota }[F.aba] || telaVisao;
+  app.innerHTML = topo() + '<div class="pag">' + abas() + tela() + '</div>';
+  el('f_per').value = F.per; el('f_vend').value = F.vend;
+  el('f_per').onchange = e=>{ F.per = e.target.value; render(); };
+  el('f_vend').onchange = e=>{ F.vend = e.target.value; render(); };
+  el('b_rec').onclick = recarregar; el('b_print').onclick = ()=>window.print(); el('b_sair').onclick = sair;
+  document.querySelectorAll('[data-aba]').forEach(b=>b.onclick = ()=>{ F.aba = b.dataset.aba; F.busca=''; render(); });
+  const fb = el('f_busca'); if(fb){ fb.oninput = e=>{ F.busca = e.target.value; const pos = fb.selectionStart; render(); const n = el('f_busca'); if(n){ n.focus(); n.setSelectionRange(pos,pos); } }; }
+  const ft = el('f_tipo'); if(ft) ft.onchange = e=>{ F.tipo = e.target.value; render(); };
+  const fd = el('f_dias'); if(fd) fd.onchange = e=>{ F.dias = e.target.value; render(); };
+  document.querySelectorAll('th[data-ord]').forEach(t=>t.onclick = ()=>{ const k = t.dataset.ord; if(F.ord===k) F.dir = -F.dir; else { F.ord = k; F.dir = k==='total'||k==='data' ? -1 : 1; } render(); });
+  const c1 = el('b_csv_ped'); if(c1) c1.onclick = ()=>csvPedidos(false);
+  const c2 = el('b_csv_itens'); if(c2) c2.onclick = ()=>csvPedidos(true);
+  const c3 = el('b_csv_cli'); if(c3) c3.onclick = csvClientes;
+  const c4 = el('b_csv_rota'); if(c4) c4.onclick = csvRota;
+}
+async function aoEntrar(){
+  const chave = el('l_chave').value.trim(), email = el('l_email').value.trim(), senha = el('l_senha').value;
+  if(!/^sb_publishable_/.test(chave)){ ERRO = 'A chave começa com sb_publishable_ — cole inteira.'; render(); return; }
+  if(!email || !senha){ ERRO = 'Preencha e-mail e senha.'; render(); return; }
+  ERRO = ''; el('l_ok').textContent = 'Entrando…';
+  try{ await entrar(chave, email, senha); await recarregar(); }
+  catch(e){ S = null; localStorage.removeItem(K); ERRO = /invalid|credentials/i.test(e.message) ? 'E-mail ou senha errados.' : (e.status===401 ? 'Chave da nuvem errada.' : 'Não entrou: '+e.message); render(); }
+}
+async function recarregar(){
+  ERRO = ''; DADOS = null; render();
+  try{ await carregar(); if(!DADOS.quem || !DADOS.quem.gestor){ ERRO = 'Este login não é de gestor/suporte: o painel mostraria só os dados dele. Peça o acesso de gestor.'; } render(); }
+  catch(e){ ERRO = 'Não consegui ler a nuvem: '+e.message; if(e.status===401){ S = null; localStorage.removeItem(K); } render(); }
+}
+render();
+if(S && S.access_token) recarregar();
+})();
+</script>
+</body>
+</html>
