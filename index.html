@@ -2829,7 +2829,7 @@ function telaFormCliente(){
     '<div class="linha-bt" style="margin:-4px 0 10px"><button class="bt bt-l" data-a="cnpjBuscar">'+ico('busca')+'Buscar dados na Receita</button></div>'+
     '<div class="dica" id="cnpj_status" style="margin:-4px 0 10px">Digite o CNPJ e o app preenche razão social, endereço, telefone e e-mail com os dados da Receita Federal (precisa de internet). Confira tudo com o cliente e ajuste o que quiser.</div>'+
     '<div class="dupla mb0">'+
-      '<div class="campo mb0"><label>Canal *</label><select id="f_canal">'+
+      '<div class="campo mb0"><label>Canal *</label><select id="f_canal" onchange="this.dataset.tocado=1">'+
         '<option value="VAREJO"'+(c.canal!=='FOODSERVICE'?' selected':'')+'>Varejo</option>'+
         '<option value="FOODSERVICE"'+(c.canal==='FOODSERVICE'?' selected':'')+'>Food Service</option>'+
       '</select></div>'+
@@ -2984,6 +2984,28 @@ function tituloCaso(t){
     return w.charAt(0).toUpperCase()+w.slice(1);
   }).join(' ').replace(/S A/g, 'S/A');
 }
+/* Atividade principal (CNAE) -> tipo de negocio e canal sugeridos. Sugestao: ele confirma ou troca. */
+function sugestaoPorCnae(cod, nome){
+  const c = String(cod||'').replace(/\D/g,''); const nm = sac(nome||'');
+  const T = (tipo, canal) => ({tipo:tipo, canal:canal||''});
+  if(/^47113/.test(c)) return T('Supermercado','VAREJO');
+  if(/^47121/.test(c)) return T(/conveni/.test(nm) ? 'Conveniência' : 'Mercadinho','VAREJO');
+  if(/^4721102/.test(c) || /^10911/.test(c) || /^10912/.test(c)) return T('Padaria','VAREJO');
+  if(/^47211/.test(c)) return T('Mercearia','VAREJO');
+  if(/^47229/.test(c)) return T('Açougue','VAREJO');
+  if(/^47245/.test(c)) return T('Hortifruti','VAREJO');
+  if(/^47296/.test(c)) return T('Empório / Delicatessen','VAREJO');
+  if(/^47318/.test(c)) return T('Conveniência','VAREJO');
+  if(/^5611201/.test(c) || /^5620104/.test(c)) return T(/pizz/.test(nm) ? 'Pizzaria' : 'Restaurante','FOODSERVICE');
+  if(/^5611203/.test(c) || /^56121/.test(c)) return T(/caf/.test(nm) ? 'Cafeteria' : 'Lanchonete','FOODSERVICE');
+  if(/^56112/.test(c)) return T('Bar','FOODSERVICE');
+  if(/^5620103/.test(c)) return T('Escola / Refeitório','FOODSERVICE');
+  if(/^56201/.test(c)) return T('Cozinha industrial','FOODSERVICE');
+  if(/^5510/.test(c) || /^5590/.test(c)) return T('Hotel / Pousada','FOODSERVICE');
+  if(/^85(11|12|13|20)/.test(c)) return T('Escola / Refeitório','FOODSERVICE');
+  if(/^46(37|39|91)/.test(c)) return T('Distribuidor / Atacado','');
+  return null;
+}
 function preencheSeVazio(id, valor){
   const n = el('f_'+id); if(!n || !valor) return false;
   if(n.value.trim()) return false;
@@ -3018,12 +3040,25 @@ async function buscarCnpj(){
     if(preencheSeVazio('email', String(d.email||'').toLowerCase())) n_++;
     const reg = el('f_regime');
     if(reg && !reg.value){ if(d.opcao_pelo_mei) reg.value = 'MEI'; else if(d.opcao_pelo_simples) reg.value = 'Simples Nacional'; if(reg.value) n_++; }
+    /* tipo de negocio e canal pela atividade (CNAE principal; se nao reconhecer, tenta as secundarias) */
+    let sug = sugestaoPorCnae(d.cnae_fiscal, (d.razao_social||'')+' '+(d.nome_fantasia||''));
+    if(!sug) (d.cnaes_secundarios||[]).some(x=>{ sug = sugestaoPorCnae(x.codigo, d.razao_social); return !!sug; });
+    let sugTxt = '';
+    if(sug){
+      const seg = el('f_segmento');
+      if(seg && !seg.value){
+        if(![...seg.options].some(o=>o.value===sug.tipo)){ const o=document.createElement('option'); o.value=sug.tipo; o.textContent=sug.tipo; seg.insertBefore(o, seg.lastElementChild); }
+        seg.value = sug.tipo; n_++; sugTxt = ' Pela atividade da empresa, sugeri tipo '+sug.tipo;
+      }
+      const can = el('f_canal');
+      if(can && sug.canal && !VISTA.id && !can.dataset.tocado){ can.value = sug.canal; sugTxt += ' · canal '+(sug.canal==='FOODSERVICE'?'Food Service':'Varejo'); }
+    }
     const sit = String(d.descricao_situacao_cadastral||'').toUpperCase();
     if(sit && sit !== 'ATIVA'){
-      cnpjStatus('Atenção: na Receita este CNPJ está "'+sit+'". Preenchi '+n_+' campo(s) — confira com o cliente antes de vender.', 'var(--terracota)');
+      cnpjStatus('Atenção: na Receita este CNPJ está "'+sit+'". Preenchi '+n_+' campo(s).'+sugTxt+' Confira com o cliente antes de vender.', 'var(--terracota)');
       aviso('CNPJ '+sit.toLowerCase()+' na Receita. Confira.');
     } else {
-      cnpjStatus('Dados da Receita preenchidos ('+n_+' campo'+(n_===1?'':'s')+'). Confira com o cliente e complete inscrição estadual e contato.', 'var(--verde)');
+      cnpjStatus('Dados da Receita preenchidos ('+n_+' campo'+(n_===1?'':'s')+').'+sugTxt+' Confira com o cliente e complete inscrição estadual e contato.', 'var(--verde)');
       aviso(n_ ? 'Dados da Receita preenchidos — confira.' : 'Receita encontrada; os campos já estavam preenchidos.');
     }
   }catch(e){ cnpjStatus('Não consegui consultar a Receita agora ('+(e.message||'erro')+'). Preencha à mão.', 'var(--terracota)'); }
