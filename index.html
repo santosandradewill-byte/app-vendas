@@ -649,7 +649,7 @@ const ico = (n,cl) => '<svg class="'+(cl||'')+'" viewBox="0 0 24 24" fill="none"
 /* ---------------- armazenamento ---------------- */
 const K_DADOS = 'harus.dados.v1';
 const K_CAT   = 'harus.catalogo.v1';
-const VERSAO_APP = '2026-09-12 r29';   /* aparece em Ajustes e no login: para saber qual versao esta rodando */
+const VERSAO_APP = '2026-09-12 r30';   /* aparece em Ajustes e no login: para saber qual versao esta rodando */
 const K_GMAIL = 'harus.gmail.v1';      /* acesso ao Gmail deste aparelho (fora do backup) */
 const K_ABA   = 'harus.aba.v1';
 
@@ -1946,7 +1946,9 @@ function montarTexto(ped, marcado, paraCliente){
   L.push(_REGUA);
   L.push(cli.razao||'—');
   if(cli.fantasia && cli.fantasia!==cli.razao) L.push('Fantasia: '+cli.fantasia);
-  if(cli.cod || cli.codIndustria) L.push('Código: '+[cli.cod, cli.codIndustria?'indústria '+cli.codIndustria:''].filter(Boolean).join(' · '));
+  /* Codigo do representante e controle interno do Anderson: nao sai em via nenhuma, para o analista da
+     industria nao digitar o numero errado. Na via da industria sai so o codigo do cliente no sistema DELES. */
+  if(!paraCliente) L.push('Código do cliente no sistema de vocês: '+(cli.codIndustria || 'ainda não tem — cadastro novo'));
   if(cli.agendamento) L.push('Descarga / agendamento: '+cli.agendamento);
   if(cli.rede)      L.push('Rede: '+cli.rede + (cli.loja?' — loja '+cli.loja:''));
   else if(cli.loja) L.push('Loja: '+cli.loja);
@@ -1959,8 +1961,8 @@ function montarTexto(ped, marcado, paraCliente){
   if(reg)            L.push('Bairro/cidade: '+reg);
   if(cli.cep)        L.push('CEP: '+cepBonito(cli.cep));
   if(cli.referencia) L.push('Referência: '+cli.referencia);
-  const contato = [cli.contato, cli.whats?telBonito(cli.whats):'', cli.fone?telBonito(cli.fone):'']
-    .filter(Boolean).join(' — ');
+  /* WhatsApp do cliente nao sai em nenhuma via: so nome do contato + telefone fixo */
+  const contato = [cli.contato, cli.fone?telBonito(cli.fone):''].filter(Boolean).join(' — ');
   if(contato) L.push('Contato: '+contato);
 
   L.push('');
@@ -2821,9 +2823,11 @@ function telaFormCliente(){
       '— o pedido é de cada uma — mas escreve a mesma rede aqui. No Painel você passa a ver a '+
       'rede inteira somada, e cada loja dentro dela.</div></div>'+
     '<div class="dupla">'+
-      '<div class="campo"><label>CNPJ</label><input type="text" inputmode="numeric" id="f_cnpj" value="'+esc(cnpjBonito(c.cnpj))+'" placeholder="00.000.000/0001-00"></div>'+
+      '<div class="campo"><label>CNPJ</label><input type="text" inputmode="numeric" id="f_cnpj" value="'+esc(cnpjBonito(c.cnpj))+'" placeholder="00.000.000/0001-00" data-ch="cnpjBusca"></div>'+
       '<div class="campo"><label>Inscrição estadual</label><input type="text" id="f_ie" value="'+esc(c.ie||'')+'" placeholder="ou ISENTO"></div>'+
     '</div>'+
+    '<div class="linha-bt" style="margin:-4px 0 10px"><button class="bt bt-l" data-a="cnpjBuscar">'+ico('busca')+'Buscar dados na Receita</button></div>'+
+    '<div class="dica" id="cnpj_status" style="margin:-4px 0 10px">Digite o CNPJ e o app preenche razão social, endereço, telefone e e-mail com os dados da Receita Federal (precisa de internet). Confira tudo com o cliente e ajuste o que quiser.</div>'+
     '<div class="dupla mb0">'+
       '<div class="campo mb0"><label>Canal *</label><select id="f_canal">'+
         '<option value="VAREJO"'+(c.canal!=='FOODSERVICE'?' selected':'')+'>Varejo</option>'+
@@ -2838,10 +2842,9 @@ function telaFormCliente(){
     '<div class="dica mt10">CNPJ, inscrição estadual e regime são o que a indústria precisa '+
     'para emitir a nota. Sem eles o pedido trava no faturamento.</div>'+
     '<div class="campo mb0" style="margin-top:14px"><label>Tipo de negócio</label>'+
-      '<input type="text" id="f_segmento" value="'+esc(c.segmento||'')+'" list="segmentos" '+
-      'placeholder="Padaria, supermercado, lanchonete...">'+
+      selectSegmento(c.segmento)+
       '<div class="dica">O <b>Canal</b> decide a tabela de preço (Varejo ou Food Service). O tipo é para você '+
-      'saber quem é quem — e o Painel soma a venda por tipo. Toque para ver a lista ou escreva outro.</div></div>'+
+      'saber quem é quem — e o Painel soma a venda por tipo. Não achou na lista? Escolha "Outro…" e escreva.</div></div>'+
     '<div class="campo mb0" style="margin-top:14px"><label>Tabela de preço</label><select id="f_tabela">'+
       '<option value="">Tabela oficial</option>'+
       (D.cfg.tabelas||[]).map(t=>'<option value="'+esc(t.id)+'"'+((c.tabelaId||'')===t.id?' selected':'')+'>'+esc(t.nome)+' ('+nm(t.pct,1).replace(/,0$/,'')+'% de contrato)</option>').join('')+
@@ -2872,7 +2875,7 @@ function telaFormCliente(){
 
   h += '<div class="secao">Entrega</div><div class="cartao"><div class="corpo">'+
     '<div class="dupla">'+
-      '<div class="campo"><label>CEP</label><input type="text" inputmode="numeric" id="f_cep" value="'+esc(c.cep?cepBonito(c.cep):'')+'" placeholder="25600-000"></div>'+
+      '<div class="campo"><label>CEP</label><input type="text" inputmode="numeric" id="f_cep" value="'+esc(c.cep?cepBonito(c.cep):'')+'" placeholder="25600-000" data-ch="cepBusca"></div>'+
       '<div class="campo"><label>Cidade</label><input type="text" id="f_cidade" value="'+esc(c.cidade||'')+'" placeholder="Petrópolis"></div>'+
     '</div>'+
     '<div class="campo"><label>Bairro</label><input type="text" id="f_bairro" '+
@@ -2910,18 +2913,34 @@ function selectCond(valor, attrs){
     ops.map(o=>'<option value="'+esc(o)+'"'+(o===v?' selected':'')+'>'+esc(o)+'</option>').join('')+
     '<option value="__outro">Outro… (digitar)</option></select>';
 }
+/* Tipo de negocio: lista fixa + o valor atual (se for um "outro" ja gravado) + "Outro... (digitar)" */
+function selectSegmento(valor){
+  const v = (valor||'').trim();
+  const ops = SEGMENTOS.filter(x=>x!=='Outro'); if(v && ops.indexOf(v)<0) ops.push(v);
+  return '<select id="f_segmento" data-ch="segSel">'+
+    '<option value=""'+(v?'':' selected')+'>— escolher —</option>'+
+    ops.map(o=>'<option value="'+esc(o)+'"'+(o===v?' selected':'')+'>'+esc(o)+'</option>').join('')+
+    '<option value="__outro">Outro… (digitar)</option></select>';
+}
+ENTRADAS.segSel = (v, alvo, t) => {
+  if(v!=='__outro') return;
+  pedirCondOutra(x=>{ const o=document.createElement('option'); o.value=x; o.textContent=x; o.selected=true; t.insertBefore(o, t.lastElementChild); },
+                 ()=>{ t.value = ''; },
+                 {titulo:'Tipo de negócio', rotulo:'Escreva o tipo', ph:'Ex.: Loja de conveniência de posto'});
+};
 let COND_CB = null;
-function pedirCondOutra(ok, cancelar){
+function pedirCondOutra(ok, cancelar, opc){
+  opc = opc || {};
   COND_CB = {ok:ok, cancelar:cancelar, feito:false};
-  modal('Condição de pagamento',
-    '<div class="campo mb0"><label>Digite a condição</label><input type="text" id="cond_outra" placeholder="Ex.: 28/42 dias"></div>',
+  modal(opc.titulo || 'Condição de pagamento',
+    '<div class="campo mb0"><label>'+esc(opc.rotulo || 'Digite a condição')+'</label><input type="text" id="cond_outra" placeholder="'+esc(opc.ph || 'Ex.: 28/42 dias')+'"></div>',
     '<button class="bt bt-p bt-bloco" data-a="condOutraOk">Usar</button>',
     ()=>{ if(COND_CB && !COND_CB.feito && COND_CB.cancelar) COND_CB.cancelar(); COND_CB = null; });
   setTimeout(()=>{ const n=el('cond_outra'); if(n) n.focus(); }, 150);
 }
 ACOES.condOutraOk = () => {
   const v = ((el('cond_outra')||{}).value || '').trim();
-  if(!v){ aviso('Digite a condição.'); return; }
+  if(!v){ aviso('Escreva alguma coisa ou feche.'); return; }
   if(COND_CB){ COND_CB.feito = true; COND_CB.ok(v); }
   fechaModal();
 };
@@ -2953,6 +2972,92 @@ ACOES.voltarCliente = () => {
   if(VISTA && VISTA.id) VISTA={t:'cliente', id:VISTA.id}; else VISTA=null;
   window.scrollTo(0,0); render();
 };
+/* ---- preenchimento automatico pelo CNPJ (BrasilAPI / Receita Federal) e pelo CEP (ViaCEP) ----
+   Servicos publicos, sem chave, so leitura. So preenche campo vazio: o que o Anderson ja digitou fica.
+   Offline, nao faz nada e ele digita normal. */
+function tituloCaso(t){
+  const peq = {de:1, da:1, do:1, das:1, dos:1, e:1};
+  const fix = {ltda:'Ltda', me:'ME', epp:'EPP', eireli:'EIRELI', sa:'S/A', 's/a':'S/A', 's.a.':'S.A.', ei:'EI', slu:'SLU', cia:'Cia', 'cia.':'Cia.'};
+  return String(t||'').trim().toLowerCase().split(/\s+/).map((w,i)=>{
+    if(fix[w]) return fix[w];
+    if(peq[w] && i>0) return w;
+    return w.charAt(0).toUpperCase()+w.slice(1);
+  }).join(' ').replace(/S A/g, 'S/A');
+}
+function preencheSeVazio(id, valor){
+  const n = el('f_'+id); if(!n || !valor) return false;
+  if(n.value.trim()) return false;
+  n.value = valor; return true;
+}
+function cnpjStatus(msg, cor){ const n = el('cnpj_status'); if(n){ n.textContent = msg; n.style.color = cor||''; } }
+let CNPJ_BUSCANDO = '';
+async function buscarCnpj(){
+  const n = el('f_cnpj'); if(!n) return;
+  const cnpj = soN(n.value);
+  if(cnpj.length !== 14){ if(cnpj.length) cnpjStatus('CNPJ incompleto: são 14 números.', 'var(--terracota)'); return; }
+  if(!cnpjValido(cnpj)){ cnpjStatus('Este CNPJ não bate (dígito verificador). Confira.', 'var(--terracota)'); return; }
+  n.value = cnpjBonito(cnpj);
+  if(!navigator.onLine){ cnpjStatus('Sem internet agora: preencha à mão.', 'var(--terracota)'); return; }
+  if(CNPJ_BUSCANDO === cnpj) return; CNPJ_BUSCANDO = cnpj;
+  cnpjStatus('Buscando na Receita…');
+  try{
+    const r = await fetch('https://brasilapi.com.br/api/cnpj/v1/'+cnpj, {cache:'no-store'});
+    if(r.status === 404){ cnpjStatus('CNPJ não encontrado na Receita. Preencha à mão.', 'var(--terracota)'); return; }
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    const d = await r.json();
+    let n_ = 0;
+    if(preencheSeVazio('razao', tituloCaso(d.razao_social))) n_++;
+    if(preencheSeVazio('fantasia', tituloCaso(d.nome_fantasia))) n_++;
+    const end = [d.descricao_tipo_de_logradouro, d.logradouro].filter(Boolean).join(' ') + (d.numero ? ', '+d.numero : '') + (d.complemento ? ' '+tituloCaso(d.complemento) : '');
+    if(preencheSeVazio('endereco', tituloCaso(end))) n_++;
+    if(preencheSeVazio('bairro', tituloCaso(d.bairro))) n_++;
+    if(preencheSeVazio('cidade', tituloCaso(d.municipio))) n_++;
+    if(preencheSeVazio('cep', d.cep ? cepBonito(String(d.cep)) : '')) n_++;
+    const tel = soN(d.ddd_telefone_1||'');
+    if(tel.length>=10){ const alvo = tel.length===11 && /^[6-9]/.test(tel.slice(2)) ? 'whats' : 'fone'; if(preencheSeVazio(alvo, telBonito(tel))) n_++; }
+    if(preencheSeVazio('email', String(d.email||'').toLowerCase())) n_++;
+    const reg = el('f_regime');
+    if(reg && !reg.value){ if(d.opcao_pelo_mei) reg.value = 'MEI'; else if(d.opcao_pelo_simples) reg.value = 'Simples Nacional'; if(reg.value) n_++; }
+    const sit = String(d.descricao_situacao_cadastral||'').toUpperCase();
+    if(sit && sit !== 'ATIVA'){
+      cnpjStatus('Atenção: na Receita este CNPJ está "'+sit+'". Preenchi '+n_+' campo(s) — confira com o cliente antes de vender.', 'var(--terracota)');
+      aviso('CNPJ '+sit.toLowerCase()+' na Receita. Confira.');
+    } else {
+      cnpjStatus('Dados da Receita preenchidos ('+n_+' campo'+(n_===1?'':'s')+'). Confira com o cliente e complete inscrição estadual e contato.', 'var(--verde)');
+      aviso(n_ ? 'Dados da Receita preenchidos — confira.' : 'Receita encontrada; os campos já estavam preenchidos.');
+    }
+  }catch(e){ cnpjStatus('Não consegui consultar a Receita agora ('+(e.message||'erro')+'). Preencha à mão.', 'var(--terracota)'); }
+  finally{ CNPJ_BUSCANDO = ''; }
+}
+function cnpjValido(c){
+  if(!/^\d{14}$/.test(c) || /^(\d)\1+$/.test(c)) return false;
+  const calc = (base, pesos) => { let sm = 0; for(let i=0;i<pesos.length;i++) sm += +base[i]*pesos[i]; const r = sm % 11; return r < 2 ? 0 : 11 - r; };
+  const d1 = calc(c, [5,4,3,2,9,8,7,6,5,4,3,2]); const d2 = calc(c, [6,5,4,3,2,9,8,7,6,5,4,3,2]);
+  return +c[12]===d1 && +c[13]===d2;
+}
+ENTRADAS.cnpjBusca = () => { buscarCnpj(); };
+ACOES.cnpjBuscar = () => { buscarCnpj(); };
+
+let CEP_BUSCANDO = '';
+async function buscarCep(){
+  const n = el('f_cep'); if(!n) return;
+  const cep = soN(n.value); if(cep.length !== 8) return;
+  n.value = cepBonito(cep);
+  if(!navigator.onLine || CEP_BUSCANDO === cep) return; CEP_BUSCANDO = cep;
+  try{
+    const r = await fetch('https://viacep.com.br/ws/'+cep+'/json/', {cache:'no-store'});
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    const d = await r.json(); if(d.erro){ aviso('CEP não encontrado. Preencha o endereço à mão.'); return; }
+    let n_ = 0;
+    if(preencheSeVazio('endereco', d.logradouro ? d.logradouro + ', ' : '')) n_++;
+    if(preencheSeVazio('bairro', d.bairro)) n_++;
+    if(preencheSeVazio('cidade', d.localidade)) n_++;
+    if(n_){ aviso('Endereço do CEP preenchido — complete o número.'); const e = el('f_endereco'); if(e && d.logradouro && e.value === d.logradouro + ', '){ e.focus(); e.setSelectionRange(e.value.length, e.value.length); } }
+  }catch(e){ /* sem rede ou servico fora: segue a mao, sem incomodar */ }
+  finally{ CEP_BUSCANDO = ''; }
+}
+ENTRADAS.cepBusca = () => { buscarCep(); };
+
 ACOES.salvarCliente = id => {
   const g = k => { const n=el('f_'+k); return n?n.value.trim():''; };
   const razao = g('razao');
@@ -4191,7 +4296,7 @@ function xlsxDoPedido(ped){
   faixa('CLIENTE', 'cab', 18);
   par('Razão social', c.razao||'');
   par('Nome fantasia', (c.fantasia&&c.fantasia!==c.razao)?c.fantasia:'');
-  par('Código', [c.cod, c.codIndustria?'indústria '+c.codIndustria:''].filter(Boolean).join(' · '));
+  par('Código do cliente no sistema de vocês', c.codIndustria || 'ainda não tem — cadastro novo');
   par('CNPJ', c.cnpj?cnpjBonito(c.cnpj):'');
   par('IE / Regime', [c.ie, c.regime].filter(Boolean).join(' · '));
   par('Canal', [CANAL_NOME[c.canal], c.segmento].filter(Boolean).join(' · '));
@@ -5531,7 +5636,6 @@ function dadosFicha(c){
   par('Ponto de referência', c.referencia);
   par('Descarga / agendamento', c.agendamento);
   par('Contato', c.contato);
-  par('WhatsApp', c.whats ? telBonito(c.whats) : '');
   par('Telefone fixo', c.fone ? telBonito(c.fone) : '');
   par('E-mail', c.email);
   par('E-mail para o XML da NF', c.emailXml || (c.email ? c.email + ' (mesmo)' : ''));
@@ -5811,7 +5915,7 @@ function pdfDoPedido(ped, paraCliente){
   const dados = [
     ['Razão social', cli.razao],
     ['Nome fantasia', (cli.fantasia && cli.fantasia!==cli.razao) ? cli.fantasia : ''],
-    ['Código', [cli.cod, cli.codIndustria?'indústria '+cli.codIndustria:''].filter(Boolean).join(' - ')],
+    ['Cód. no sistema de vocês', paraCliente ? '' : (cli.codIndustria || 'ainda não tem - cadastro novo')],
     ['Descarga', cli.agendamento],
     ['CNPJ', cnpjBonito(cli.cnpj)],
     ['Inscrição estadual', cli.ie],
@@ -5819,8 +5923,7 @@ function pdfDoPedido(ped, paraCliente){
     ['Canal', CANAL_NOME[cli.canal] + (cli.segmento?' - '+cli.segmento:'')],
     ['Entrega', [cli.endereco, cli.bairro, cli.cidade, cli.cep?'CEP '+cepBonito(cli.cep):''].filter(Boolean).join(' - ')],
     ['Referência', cli.referencia],
-    ['Contato', [cli.contato, cli.whats?telBonito(cli.whats):'',
-                 cli.fone?telBonito(cli.fone):''].filter(Boolean).join(' - ')],
+    ['Contato', [cli.contato, cli.fone?telBonito(cli.fone):''].filter(Boolean).join(' - ')],
     ['E-mail', cli.email]
   ].filter(l=>l[1]);
   dados.forEach(l=>{
@@ -6987,7 +7090,7 @@ function emailHtml(ped, paraCliente){
   if(cli.cnpj)      campos.push(['CNPJ', cnpjBonito(cli.cnpj)]);
   if(cli.ie)        campos.push(['Inscrição estadual', cli.ie]);
   if(cli.regime)    campos.push(['Regime tributário', cli.regime]);
-  if(cli.cod || cli.codIndustria) campos.push(['Código', [cli.cod, cli.codIndustria?'indústria '+cli.codIndustria:''].filter(Boolean).join(' — ')]);
+  if(!paraCliente) campos.push(['Código do cliente no sistema de vocês', cli.codIndustria || 'ainda não tem — cadastro novo']);
   campos.push(['Canal', CANAL_NOME[cli.canal] || '—']);
   if(cli.segmento)   campos.push(['Tipo de negócio', cli.segmento]);
   if(cli.agendamento) campos.push(['Descarga / agendamento', cli.agendamento]);
@@ -6996,8 +7099,7 @@ function emailHtml(ped, paraCliente){
     campos.push(['Bairro / cidade', [cli.bairro, cli.cidade].filter(Boolean).join(' — ')]);
   if(cli.cep)        campos.push(['CEP', cepBonito(cli.cep)]);
   if(cli.referencia) campos.push(['Ponto de referência', cli.referencia]);
-  const contato = [cli.contato, cli.whats?telBonito(cli.whats):'', cli.fone?telBonito(cli.fone):'']
-    .filter(Boolean).join(' — ');
+  const contato = [cli.contato, cli.fone?telBonito(cli.fone):''].filter(Boolean).join(' — ');
   if(contato)   campos.push(['Contato', contato]);
   if(cli.email) campos.push(['E-mail', cli.email]);
 
