@@ -677,7 +677,7 @@ const CFG_PADRAO = {
   /* A nuvem (Supabase). A URL nao e segredo. A chave publica (sb_publishable_...)
      e feita para viver no app, mas fica em Ajustes, nao no codigo. */
   nuvem:{ url:'https://wzymaphljtwaoikyyqrk.supabase.co', chave:'' },
-  /* Versiculo do dia na primeira abertura. E da versao do Anderson:
+  /* Versiculo do dia na primeira abertura. E desta versao:
      para outra empresa, deixe false aqui (ou desligue em Ajustes). */
   versiculo:true,
   versiculoVisto:'',   /* AAAA-MM-DD da ultima vez que apareceu */
@@ -718,7 +718,7 @@ let PERSISTIDO = null;   /* true/false depois que o navegador responde */
 let D = lerJSON(K_DADOS, null) || { cfg:{}, clientes:[], pedidos:[], seq:0, rascunhoId:null };
 D.cfg = Object.assign({}, CFG_PADRAO, D.cfg||{});
 if(!Array.isArray(D.cfg.contatos)) D.cfg.contatos = [];
-/* aparelhos antigos vinham com prefixo vazio: o numero do Anderson (0055) confundia com o do
+/* aparelhos antigos vinham com prefixo vazio: o numero do representante (0055) confundia com o do
    cliente na industria. Passa a REP-; os pedidos ja feitos ficam como estao. */
 /* Rodada 21b: o REP- saiu; a sigla da industria ja diz de quem e o pedido (HAR-0031, CAF-0032).
    Aparelhos que receberam o REP- automatico voltam a vazio; pedidos ja feitos nao mudam. */
@@ -1388,7 +1388,7 @@ function seletorCliente(){
   }
 
   /* aba Pedido abre com um botao so: NOVO PEDIDO. Escolher o cliente vem depois do toque.
-     Cadastro de cliente e coisa da aba Clientes (pedido do Willian). */
+     Cadastro de cliente e coisa da aba Clientes. */
   if(!ESCOLHENDO_CLIENTE){
     h += '<button class="bt bt-p bt-bloco bt-alto" data-a="novoPedidoIniciar">'+ico('mais')+'NOVO PEDIDO</button>'+
       '<div class="peq" style="margin:7px 3px 14px">Escolhe o cliente, preenche os dados, monta os itens e confere. '+
@@ -1634,7 +1634,7 @@ ACOES.repetirUltimo = id => {
       const ja = ped.itens.find(x=>x.skuId===it.skuId);
       if(ja){ ja.qtd = it.qtd; }
       else {
-        /* nasce no ultimo preco digitado (Willian: se vendeu mais caro, nao pode cair sem querer);
+        /* nasce no ultimo preco digitado (se vendeu mais caro, nao pode cair sem querer);
            o que estiver fora da tabela de hoje fica marcado, e ele ve no card */
         const tab = precoDe(pr,it.un);
         const pv = (Number(it.preco)>0) ? Number(it.preco) : tab;
@@ -1946,7 +1946,7 @@ function montarTexto(ped, marcado, paraCliente){
   L.push(_REGUA);
   L.push(cli.razao||'—');
   if(cli.fantasia && cli.fantasia!==cli.razao) L.push('Fantasia: '+cli.fantasia);
-  /* Codigo do representante e controle interno do Anderson: nao sai em via nenhuma, para o analista da
+  /* Codigo do representante e controle interno do representante: nao sai em via nenhuma, para o analista da
      industria nao digitar o numero errado. Na via da industria sai so o codigo do cliente no sistema DELES. */
   if(!paraCliente) L.push('Código do cliente na indústria: '+(cli.codIndustria || 'ainda não tem — cadastro novo'));
   if(cli.agendamento) L.push('Descarga / agendamento: '+cli.agendamento);
@@ -2973,7 +2973,7 @@ ACOES.voltarCliente = () => {
   window.scrollTo(0,0); render();
 };
 /* ---- preenchimento automatico pelo CNPJ (BrasilAPI / Receita Federal) e pelo CEP (ViaCEP) ----
-   Servicos publicos, sem chave, so leitura. So preenche campo vazio: o que o Anderson ja digitou fica.
+   Servicos publicos, sem chave, so leitura. So preenche campo vazio: o que o representante ja digitou fica.
    Offline, nao faz nada e ele digita normal. */
 function tituloCaso(t){
   const peq = {de:1, da:1, do:1, das:1, dos:1, e:1};
@@ -4669,7 +4669,7 @@ function telaAjustes(){
       : '<span style="color:var(--terracota);font-weight:700">ainda não guardado</span> — abra o app uma vez com internet (ou toque em Buscar atualização).')+
     '<div class="linha-bt mt10"><button class="bt bt-l" data-a="appVerificar">Conferir versão</button>'+
     '<button class="bt bt-l" data-a="appAtualizar">'+ico('repetir')+'Buscar atualização</button></div>'+
-    '<div class="dica">Use quando o Willian avisar que subiu uma versão nova: baixa e reabre na hora.</div>'+
+    '<div class="dica">Use quando avisarem que subiu uma versão nova: baixa e reabre na hora.</div>'+
     '</div></div>';
 
   h += '<button class="bt bt-t bt-bloco" data-a="apagarTudo" style="color:var(--terracota);margin-top:6px">'+
@@ -5154,7 +5154,7 @@ ACOES.nuvemLogar = async () => {
     guardarSessao(sessaoDe(js));
     let quem = null; try{ quem = await nuvemFetch('/rest/v1/rpc/quem_sou', {}); }catch(e){}
     D.nuvem.quem = quem; D.nuvem.erro = ''; gravar(true); ajustarRepDaNuvem(); fechaModal(); render();
-    if(quem && !quem.vendedor){ aviso('Entrou, mas este usuário não está amarrado a uma empresa. Avise o Willian.'); return; }
+    if(quem && !quem.vendedor){ aviso('Entrou, mas este usuário não está amarrado a uma empresa. Avise quem administra o app.'); return; }
     aviso('Entrou como '+((quem&&quem.vendedor)||email));
     if(!CAT.length) await ACOES.catalogoBaixar(true);
     const temLocal = D.clientes.some(c=>!c.demo) || D.pedidos.some(p=>!p.demo);
@@ -5165,7 +5165,7 @@ ACOES.nuvemLogar = async () => {
     if(/api ?key/i.test(m) && precisaEntrar()){
       /* ainda no portao: a chave colada nao serve; reabre o campo com ela dentro para conferir */
       PORTAO_TROCAR_CHAVE = true; render();
-      aviso('A chave da nuvem está errada. Confira a chave que o Willian mandou e cole de novo.');
+      aviso('A chave da nuvem está errada. Confira a chave que você recebeu e cole de novo.');
       return;
     }
     aviso(/api ?key/i.test(m) ? 'A chave da nuvem está errada. Confira em Ajustes › Nuvem.'
@@ -5361,7 +5361,7 @@ function corpoNuvemAjustes(){
   h += '<div class="campo mt10"><label>Endereço da nuvem</label><input type="url" inputmode="url" autocapitalize="off" value="'+esc(cfg.url)+'" placeholder="https://xxxx.supabase.co" data-ch="cfgNuvem" data-i="url"></div>'+
     '<div class="campo mb0"><label>Chave pública (sb_publishable_...)</label><input type="text" autocapitalize="off" autocomplete="off" value="'+esc(cfg.chave)+'" placeholder="cole aqui uma vez" data-ch="cfgNuvem" data-i="chave"></div>'+
     '<div class="peq mt10">A chave pública é feita para ficar no app; quem protege os dados é o login. '+
-    'Quem tem a chave e a senha é o Willian.</div>';
+    'A chave e a senha ficam com quem administra o app.</div>';
   return h;
 }
 ENTRADAS.cfgNuvem = (v,k) => { D.cfg.nuvem[k] = v.trim(); gravar(true); pintaEstadoNuvem(); };
@@ -5377,7 +5377,7 @@ function faixaNuvem(){
   if((n && horas > 24) || (D.nuvem.erro && horas > 24)){
     return '<div class="faixa">'+ico('alerta')+'<div><b>Não está sincronizando</b>'+
       (n?n+' pedido(s)/cliente(s) esperando para subir. ':'')+(D.nuvem.erro?'Motivo: '+esc(D.nuvem.erro)+'. ':'')+
-      'Última vez: '+(D.nuvem.ultimoOk?horaCurta(D.nuvem.ultimoOk):'nunca')+'. Se continuar, avise o Willian.'+
+      'Última vez: '+(D.nuvem.ultimoOk?horaCurta(D.nuvem.ultimoOk):'nunca')+'. Se continuar, avise quem administra o app.'+
       '<button data-a="nuvemSincronizar" style="display:block">Tentar agora</button></div></div>';
   }
   return '';
@@ -7256,7 +7256,7 @@ function emailHtml(ped, paraCliente){
 
 /* =====================================================
    E-MAIL DIRETO PELO GMAIL (API do Google) — sem biblioteca
-   O Anderson autoriza uma vez neste aparelho; o e-mail sai da conta dele,
+   O representante autoriza uma vez neste aparelho; o e-mail sai da conta dele,
    com o pedido em tabela no corpo e PDF + planilha anexados.
    Fluxo: redireciona para o Google (response_type=token), volta com o
    token no #hash, guarda 1 h em K_GMAIL e retoma o envio pendente.
@@ -7271,8 +7271,8 @@ function gmailPedirAcesso(pendente){
   try{ localStorage.setItem('harus.gmail.pendente', JSON.stringify(pendente||{})); }catch(x){}
   const st = 'g'+Math.random().toString(36).slice(2);
   try{ localStorage.setItem('harus.gmail.state', st); }catch(x){}
-  /* sem login_hint: o e-mail da nuvem pode nao ser a conta Google do aparelho (foi o caso no
-     teste do Willian) e o Google ficava pedindo a senha de outra pessoa. Ele escolhe a conta. */
+  /* sem login_hint: o e-mail da nuvem pode nao ser a conta Google do aparelho (aconteceu
+     em teste) e o Google ficava pedindo a senha de outra pessoa. Ele escolhe a conta. */
   location.href = 'https://accounts.google.com/o/oauth2/v2/auth?client_id='+e(GMAIL_CLIENT_ID)+
     '&redirect_uri='+e(gmailRedirect())+'&response_type=token&scope='+e(GMAIL_ESCOPO)+
     '&include_granted_scopes=true&prompt=select_account&state='+st;
@@ -7576,10 +7576,10 @@ function telaPortao(){
   const semChave = !nuvemPronta() || PORTAO_TROCAR_CHAVE;
   return '<div class="cartao" style="margin-top:18px"><div class="corpo">'+
     '<div style="font-size:calc(19px * var(--esc));font-weight:800;letter-spacing:-.3px;margin-bottom:4px">Entrar</div>'+
-    '<div class="peq" style="margin-bottom:14px">Use o e-mail e a senha que o Willian cadastrou. Uma vez só neste aparelho.</div>'+
+    '<div class="peq" style="margin-bottom:14px">Use o e-mail e a senha que você recebeu. Uma vez só neste aparelho.</div>'+
     (semChave ? '<div class="campo"><label>Chave da nuvem (sb_publishable_...)</label>'+
         '<input type="text" id="pt_chave" autocapitalize="off" autocomplete="off" spellcheck="false" placeholder="cole aqui uma vez" value="'+esc(PORTAO_TROCAR_CHAVE?(D.cfg.nuvem.chave||''):'')+'">'+
-        '<div class="dica">É a chave que o Willian mandou. Cole inteira, sem espaço antes ou depois.</div></div>' : '')+
+        '<div class="dica">É a chave que você recebeu. Cole inteira, sem espaço antes ou depois.</div></div>' : '')+
     '<div class="campo"><label>E-mail</label><input type="email" inputmode="email" autocapitalize="off" id="nv_email" value="'+esc((SESSAO&&SESSAO.email)||'')+'"></div>'+
     '<div class="campo"><label>Senha</label><input type="password" id="nv_senha"></div>'+
     '<button class="bt bt-p bt-bloco bt-alto" data-a="portaoEntrar">Entrar</button>'+
@@ -7593,7 +7593,7 @@ ACOES.portaoEntrar = async () => {
   if(k){
     const v = k.value.replace(/\s+/g,'');   /* tira espaco, quebra de linha, o que veio junto no colar */
     if(!v){ aviso('Cole a chave da nuvem.'); k.focus(); return; }
-    if(!chaveParece(v)){ aviso('Isso não parece a chave. Ela começa com sb_publishable_ — peça ao Willian para mandar de novo.'); k.focus(); return; }
+    if(!chaveParece(v)){ aviso('Isso não parece a chave. Ela começa com sb_publishable_ — peça para mandarem de novo.'); k.focus(); return; }
     D.cfg.nuvem.chave = v; gravar(true); PORTAO_TROCAR_CHAVE = false;
   }
   if(!nuvemPronta()){ aviso('Cole a chave da nuvem.'); return; }
@@ -7794,7 +7794,7 @@ function ligarPWA(){
   }
 }
 let SW_REG = null;
-/* etiqueta pequena "r24" no canto da barra de cima: o Willian pede para o Anderson olhar ali */
+/* etiqueta pequena "r24" no canto da barra de cima: para conferir qual versao esta rodando */
 function pintaVersao(){
   const b = document.querySelector('#topo .barra'); if(!b || b.querySelector('.versao-topo')) return;
   const sp = document.createElement('span'); sp.className = 'versao-topo';
