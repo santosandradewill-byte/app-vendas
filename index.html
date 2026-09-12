@@ -649,7 +649,7 @@ const ico = (n,cl) => '<svg class="'+(cl||'')+'" viewBox="0 0 24 24" fill="none"
 /* ---------------- armazenamento ---------------- */
 const K_DADOS = 'harus.dados.v1';
 const K_CAT   = 'harus.catalogo.v1';
-const VERSAO_APP = '2026-09-12 r30';   /* aparece em Ajustes e no login: para saber qual versao esta rodando */
+const VERSAO_APP = '2026-09-12 r31';   /* aparece em Ajustes e no login: para saber qual versao esta rodando */
 const K_GMAIL = 'harus.gmail.v1';      /* acesso ao Gmail deste aparelho (fora do backup) */
 const K_ABA   = 'harus.aba.v1';
 
@@ -1402,6 +1402,7 @@ function seletorCliente(){
           '<span class="ini">'+esc(iniciais(c?(c.fantasia||c.razao):'?'))+'</span>'+
           '<span class="info"><span class="nm">'+esc(c?(c.fantasia||c.razao):'Sem cliente')+'</span>'+
           '<span class="sub"><span>'+esc(p.num)+'</span><span>'+dbr(p.data)+'</span><span class="et '+seloStatus(p.status)+'">'+esc(p.status)+'</span>'+
+          (revisaoDe(p) ? '<span class="et" style="background:#FBE9E4;color:var(--terracota)">revisão '+revisaoDe(p).n+'</span>' : '')+
           (p.demo?'<span class="et et-ex">exemplo</span>':'')+'</span></span>'+
           '<span class="dir"><span class="val">'+brl0(t.liquido)+'</span></span>'+
           '<span class="seta">'+ico('seta')+'</span></button>';
@@ -1938,6 +1939,7 @@ function montarTexto(ped, marcado, paraCliente){
   else if(!paraCliente) L.push('Cliente não informou nº de pedido — emitir com o número de vocês.');
   L.push('Ref. interna do representante (não usar na NF): ' + ped.num);
   L.push('Data do pedido: ' + dbr(ped.data));
+  { const rv = revisaoDe(ped); if(rv) L.push(b+rv.frase+b); }
   if(ped.dataEntrega) L.push(b+'Entrega combinada: ' + dbr(ped.dataEntrega)+b);
   if(ped.cond && !ehBonif(ped)) L.push('Pagamento: ' + ped.cond);
 
@@ -2040,6 +2042,7 @@ function cartaoCabecalhoPedido(ped, cli){
     '<h2>Pedido '+esc(ped.num)+' · '+dbr(ped.data)+'</h2>'+
     seloTipo(ped)+'<span class="et '+seloStatus(ped.status)+'">'+esc(ped.status)+'</span></div>'+
     '<div class="corpo">'+
+      (revisaoDe(ped) ? '<div class="faixa-aviso" style="margin:0 0 10px;background:#FBE9E4;color:var(--terracota);border-radius:9px;padding:8px 11px;font-size:calc(12.5px * var(--esc));font-weight:700">'+esc(revisaoDe(ped).frase)+'</div>' : '')+
       '<div style="font-size:calc(15.5px * var(--esc));font-weight:700;line-height:1.3">'+esc(cli.fantasia||cli.razao||'Sem cliente')+'</div>'+
       '<div class="peq" style="margin-top:3px">'+
         [CANAL_NOME[cli.canal], cnpjBonito(cli.cnpj), cli.cidade].filter(Boolean).map(esc).join(' · ')+'</div>'+
@@ -2404,6 +2407,9 @@ ACOES.fecharPedido = id => {
   if(!p.itens.length){ aviso('Coloque pelo menos um item antes de fechar.'); return; }
   p.status = 'Fechado';
   p.fechadoEm = new Date().toISOString();
+  /* a data do pedido e o dia da emissao (quando fecha), nao o dia em que comecou a digitar.
+     Revisao de pedido ja faturado mantem a data original: e o mesmo pedido, corrigido. */
+  if(!(p.reaberturas||[]).length) p.data = hoje();
   if(D.rascunhoId===id) D.rascunhoId = null;
   gravar();
   VISTA = {t:'enviar', id:id}; window.scrollTo(0,0); render();
@@ -2466,16 +2472,52 @@ ACOES.reabrirPedido = id => {
     aviso('Pedido '+p.num+' reaberto para edição');
   };
   if(p.status==='Fechado'){ volta(); return; }
+  if(p.status==='Faturado'){
+    /* Pedido faturado so reabre com motivo (corte, cancelamento do cliente, imprevisto) e justificativa:
+       a industria ja emitiu nota, entao a revisao vai marcada em todas as vias. */
+    modal('Reabrir pedido faturado',
+      '<p style="margin:2px 0 10px;font-size:calc(14px * var(--esc));line-height:1.5">O pedido '+esc(p.num)+' já foi <b>faturado</b>. '+
+      'Só reabra se houve corte de itens, cancelamento pelo cliente ou algum imprevisto. A revisão sai marcada nas vias, com o motivo.</p>'+
+      '<div class="campo"><label>Motivo</label><select id="rb_motivo">'+
+        '<option value="">— escolher —</option>'+
+        '<option>Corte de itens pela indústria</option>'+
+        '<option>Cancelamento pelo cliente</option>'+
+        '<option>Cancelamento parcial pelo cliente</option>'+
+        '<option>Erro de digitação</option>'+
+        '<option>Imprevisto (explicar abaixo)</option></select></div>'+
+      '<div class="campo mb0"><label>Justificativa *</label><textarea id="rb_texto" placeholder="Ex.: indústria cortou 2 caixas do item 82 por falta de estoque"></textarea></div>',
+      '<div class="linha-bt"><button class="bt bt-l" data-a="fechaModal">Voltar</button>'+
+      '<button class="bt bt-p" data-a="reabrirFaturadoOk" data-i="'+esc(p.id)+'">Reabrir com justificativa</button></div>');
+    return;
+  }
   confirmar('Reabrir o pedido '+p.num+'?',
     'Ele está como '+p.status+'. Reabrir volta para Rascunho e tira ele da venda do mês '+
     'até você fechar de novo. Se já foi para a indústria, avise lá o que mudou.',
     'Reabrir', 'bt-p', volta);
 };
 
+ACOES.reabrirFaturadoOk = id => {
+  const p = pedidoPorId(id); if(!p) return;
+  const motivo = ((el('rb_motivo')||{}).value||'').trim(), texto = ((el('rb_texto')||{}).value||'').trim();
+  if(!motivo){ aviso('Escolha o motivo.'); return; }
+  if(texto.length < 8){ aviso('Escreva a justificativa (pelo menos algumas palavras).'); return; }
+  p.reaberturas = p.reaberturas || [];
+  p.reaberturas.push({ quando: new Date().toISOString(), de: p.status, motivo: motivo, texto: texto });
+  p.status = 'Rascunho'; D.rascunhoId = id; gravar(); fechaModal();
+  VISTA=null; ABA='pedido'; localStorage.setItem(K_ABA,'pedido'); window.scrollTo(0,0); render();
+  aviso('Pedido '+p.num+' reaberto — revisão marcada');
+};
+/* texto curto da ultima reabertura de pedido faturado (para vias e telas) */
+function revisaoDe(ped){
+  const r = (ped.reaberturas||[]); if(!r.length) return null;
+  const u = r[r.length-1];
+  return { n: r.length, quando: u.quando, motivo: u.motivo, texto: u.texto,
+           frase: 'REVISÃO '+r.length+' — pedido reaberto após faturamento em '+dbr(u.quando.slice(0,10))+'. Motivo: '+u.motivo+'. '+u.texto+(/[.!?]$/.test(u.texto)?'':'.')+' Esta versão substitui a anterior.' };
+}
 ACOES.setStatus = (id,st) => {
   const p = pedidoPorId(id); if(!p) return;
   p.status = st;
-  if(st==='Fechado' && !p.fechadoEm) p.fechadoEm = new Date().toISOString();
+  if(st==='Fechado' && !p.fechadoEm){ p.fechadoEm = new Date().toISOString(); if(!(p.reaberturas||[]).length) p.data = hoje(); }
   if(st==='Enviado' && !p.enviadoEm) p.enviadoEm = new Date().toISOString();
   if(st!=='Rascunho' && D.rascunhoId===id) D.rascunhoId = null;
   gravar(); render(); aviso('Pedido '+p.num+': '+st);
@@ -3726,29 +3768,42 @@ function mgPintar(exceto){
 /* Mesa de negociacao: o ultimo valor em R$ que ele digitou (custo ou venda) fica travado.
    Digitou venda e depois margem -> muda o custo. Digitou custo e depois margem -> muda a venda.
    Digitou custo e venda em seguida -> os dois ficam e a margem e calculada. */
+/* Regra da mesa de negociacao:
+   - quem digita custo ou venda: o valor digitado vale. Se o OUTRO valor tambem foi digitado por ele
+     (nao calculado), esse outro fica parado e a margem e que muda. Se o outro era calculado, a margem
+     fica e o outro e recalculado.
+   - quem digita margem/markup/lucro: o ultimo valor digitado (custo ou venda) fica travado e o outro muda.
+   MG.digitado marca o que foi digitado pela pessoa; o que o app calculou nao conta. */
 ENTRADAS.mg = (v, campo) => {
   const x = pnum(v); const r = mgCalc();
+  MG.digitado = MG.digitado || {custo:true, venda:false};
   if(campo==='custo'){
     MG.custo = x;
-    if(MG.ultimo==='venda' && r.venda>0) MG.margem = (r.venda-x)/r.venda*100;
-    MG.venda = r.venda; MG.modo = 'custo';
+    if(MG.digitado.venda && MG.venda>0){ MG.margem = (MG.venda-x)/MG.venda*100; }   /* venda digitada fica; margem muda */
+    else { MG.venda = r.venda; MG.digitado.venda = false; }                          /* margem fica; venda recalcula */
+    MG.digitado.custo = true; MG.modo = 'custo'; MG.ultimo = 'custo';
   } else if(campo==='venda'){
     MG.venda = x;
-    if(MG.ultimo==='custo' && x>0) MG.margem = (x-r.custo)/x*100;
-    MG.custo = r.custo; MG.modo = 'venda';
-  } else if(campo==='margem'){ MG.margem = Math.min(x, 99.99); }
-  else if(campo==='markup'){ MG.margem = x/(100+x)*100; }
-  else if(campo==='lucro'){
-    if(MG.modo==='venda'){ if(r.venda>0) MG.margem = x/r.venda*100; }
-    else { if(r.custo+x>0) MG.margem = x/(r.custo+x)*100; }
+    if(MG.digitado.custo && MG.custo>0 && x>0){ MG.margem = (x-MG.custo)/x*100; }   /* custo digitado fica; margem muda */
+    else { MG.custo = r.custo; MG.digitado.custo = false; }
+    MG.digitado.venda = true; MG.modo = 'venda'; MG.ultimo = 'venda';
+  } else {
+    if(campo==='margem') MG.margem = Math.min(x, 99.99);
+    else if(campo==='markup') MG.margem = x/(100+x)*100;
+    else if(campo==='lucro'){
+      if(MG.modo==='venda'){ if(r.venda>0) MG.margem = x/r.venda*100; }
+      else { if(r.custo+x>0) MG.margem = x/(r.custo+x)*100; }
+    }
+    /* o valor travado (modo) fica; o outro passa a ser calculado */
+    if(MG.modo==='venda') MG.digitado.custo = false; else MG.digitado.venda = false;
+    MG.ultimo = campo;
   }
-  MG.ultimo = campo;
   mgPintar(campo);
 };
 ENTRADAS.mgBusca = v => { MG.busca = v; const l = el('mg_lista'); if(l) l.innerHTML = mgListaHTML(); };
-ACOES.mgModo = m => { const r = mgCalc(); MG.modo = (m==='venda') ? 'venda' : 'custo'; MG.ultimo = MG.modo; MG.custo = r.custo; MG.venda = r.venda; mgRefazer(); };
+ACOES.mgModo = m => { const r = mgCalc(); MG.modo = (m==='venda') ? 'venda' : 'custo'; MG.ultimo = MG.modo; MG.custo = r.custo; MG.venda = r.venda; MG.digitado = {custo:MG.modo==='custo', venda:MG.modo==='venda'}; mgRefazer(); };
 ACOES.mgMargem = v => { MG.margem = Number(v)||0; mgPintar(null); };
-ACOES.mgCusto  = v => { const r = mgCalc(); MG.modo = 'custo'; MG.ultimo = 'custo'; MG.custo = Number(v)||0; MG.margem = r.margem; mgRefazer(); };
+ACOES.mgCusto  = v => { const r = mgCalc(); MG.modo = 'custo'; MG.ultimo = 'custo'; MG.custo = Number(v)||0; MG.margem = r.margem; MG.digitado = {custo:true, venda:false}; mgRefazer(); };
 /* produto da tabela: custo = preco por pacote, com caixa e unidade como opcao */
 ACOES.mgProduto = id => {
   const p = porId[id]; if(!p) return;
@@ -3756,11 +3811,11 @@ ACOES.mgProduto = id => {
   MG.opcoes = [{rot:'Caixa', v:Math.round(cx*100)/100}];
   if(pc) MG.opcoes.push({rot:'Pacote', v:Math.round(pc*100)/100});
   if(un && (p.unPorPacote||0)>1) MG.opcoes.push({rot:'Unidade', v:Math.round(un*100)/100});
-  MG.modo = 'custo'; MG.ultimo = 'custo'; MG.custo = pc || cx; MG.rotulo = p.nome+' — cód. '+p.cod+' (tabela)'; MG.busca = '';
+  MG.modo = 'custo'; MG.ultimo = 'custo'; MG.custo = pc || cx; MG.digitado = {custo:true, venda:false}; MG.rotulo = p.nome+' — cód. '+p.cod+' (tabela)'; MG.busca = '';
   mgRefazer();
 };
 ACOES.mgLimpar = () => {
-  MG.modo='custo'; MG.ultimo='custo'; MG.custo = 0; MG.venda = 0; MG.margem = 30; MG.rotulo=''; MG.opcoes=null; MG.voltarPedido=false; MG.item=null; MG.busca='';
+  MG.modo='custo'; MG.ultimo='custo'; MG.custo = 0; MG.venda = 0; MG.margem = 30; MG.digitado = {custo:false, venda:false}; MG.rotulo=''; MG.opcoes=null; MG.voltarPedido=false; MG.item=null; MG.busca='';
   mgRefazer(); setTimeout(()=>{ const n=el('mg_custo'); if(n){ n.focus(); n.select(); } },150);
 };
 ACOES.mgVoltarPedido = () => { MG.voltarPedido = false; irPara('pedido'); };
@@ -3775,7 +3830,7 @@ ACOES.simularMargem = i => {
   MG.opcoes = [{rot:'Caixa', v:Math.round(cx*100)/100}];
   if(pc) MG.opcoes.push({rot:'Pacote', v:Math.round(pc*100)/100});
   if(un && p.unPorPacote>1) MG.opcoes.push({rot:'Unidade', v:Math.round(un*100)/100});
-  MG.modo = 'custo'; MG.ultimo = 'custo'; MG.custo = pc || cx; MG.rotulo = it.nome + ' — cód. ' + it.cod; MG.voltarPedido = false; MG.item = +i; MG.busca = '';
+  MG.modo = 'custo'; MG.ultimo = 'custo'; MG.custo = pc || cx; MG.digitado = {custo:true, venda:false}; MG.rotulo = it.nome + ' — cód. ' + it.cod; MG.voltarPedido = false; MG.item = +i; MG.busca = '';
   abrirMargemModal();
 };
 
@@ -4318,6 +4373,7 @@ function xlsxDoPedido(ped){
   else faixa((bon?'BONIFICAÇÃO — ':'')+'Pedido '+ped.num+'  ·  '+nomeMarca()+'  ·  '+dbr(ped.data), 'titulo', 26);
   if(bon) faixa('PEDIDO DE BONIFICAÇÃO — SEM COBRANÇA. Não faturar como venda; os valores são referência para a nota de bonificação.', 'aviso', 22);
   if(neg) faixa('ATENÇÃO: '+neg+' item(ns) com preço negociado, diferente da tabela. Faturar pelo "Preço caixa" de cada item.', 'aviso', 22);
+  { const rv = revisaoDe(ped); if(rv) faixa(rv.frase, 'aviso', 22); }
   linha([]);
   faixa('PEDIDO', 'cab', 18);
   par('Nº do pedido no cliente (usar na NF)', ped.numCliente || 'não informado — usar o número de vocês', ped.numCliente ? 'nf' : null);
@@ -5943,6 +5999,14 @@ function pdfDoPedido(ped, paraCliente){
     y += 34;
   }
 
+  { const rv = revisaoDe(ped);
+    if(rv){
+      const ls = quebrarLinhas(rv.frase, A4L-2*M-20, 8, true);
+      const alt = 14 + ls.length*11;
+      pg.ret(M, y-11, A4L-2*M, alt, [0.984,0.914,0.894]);
+      ls.forEach((ln,i)=>pg.txt(M+10, y+1+i*11, ln, {tam:8, negrito:true, cor:TERRA_PDF}));
+      y += alt + 4;
+    } }
   /* ---- cliente ---- */
   pg.txt(M, y, 'CLIENTE', {tam:7.5, negrito:true, cor:CINZA_PDF});
   y += 13;
@@ -7044,6 +7108,10 @@ ACOES.setVistaPainel = v => { vistaPainel = v; window.scrollTo(0,0); render(); }
    ===================================================== */
 
 function assuntoPedido(ped, paraCliente){
+  const _rv = revisaoDe(ped); if(_rv){ const a = assuntoPedidoBase(ped, paraCliente); return 'REVISÃO '+_rv.n+' — '+a; }
+  return assuntoPedidoBase(ped, paraCliente);
+}
+function assuntoPedidoBase(ped, paraCliente){
   const cli = clienteDe(ped) || {};
   const t = totais(ped);
   const quem = cli.fantasia || cli.razao || 'cliente';
@@ -7114,7 +7182,8 @@ function emailHtml(ped, paraCliente){
     (ehBonif(ped) ? '<div style="'+fonte+';background:#FFF1C2;color:#8F6908;font-weight:800;font-size:calc(13px * var(--esc));padding:9px 18px;letter-spacing:.3px">'+
       'PEDIDO DE BONIFICAÇÃO — sem cobrança</div>' : '')+
     (!paraCliente && itensNegociados(ped).length ? '<div style="'+fonte+';background:#FBE9E4;color:'+EM.terra+';font-weight:700;font-size:calc(12.5px * var(--esc));padding:9px 18px">'+
-      'Atenção: '+itensNegociados(ped).length+' item(ns) com <u>preço negociado</u>, diferente da tabela. Faturar pelo preço de cada item (coluna Preço cx).</div>' : '');
+      'Atenção: '+itensNegociados(ped).length+' item(ns) com <u>preço negociado</u>, diferente da tabela. Faturar pelo preço de cada item (coluna Preço cx).</div>' : '')+
+    (revisaoDe(ped) ? '<div style="'+fonte+';background:#FBE9E4;color:'+EM.terra+';font-weight:700;font-size:calc(12.5px * var(--esc));padding:9px 18px">'+esc(revisaoDe(ped).frase)+'</div>' : '');
 
   /* cliente */
   const campos = [];
