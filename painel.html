@@ -125,7 +125,7 @@ td.d,th.d{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
    Raio-X · Redes · Clientes · Produtos · Pedidos · Sem comprar.
    Lê a nuvem com login de gestor/suporte. Nada de preço, cliente ou chave no arquivo.
    ========================================================= */
-const VERSAO = '2026-09-25 p4';
+const VERSAO = '2026-09-25 p5';
 const K = 'painel.sessao.v1';
 const NUVEM_URL = 'https://wzymaphljtwaoikyyqrk.supabase.co';
 let S = null, DADOS = null, ERRO = '';
@@ -173,7 +173,66 @@ async function entrar(chave, email, senha){
   S.access_token = js.access_token; S.refresh_token = js.refresh_token; S.expires_at = Math.floor(Date.now()/1000)+(js.expires_in||3600); S.email = email.trim();
   localStorage.setItem(K, JSON.stringify(S));
 }
-function sair(){ localStorage.removeItem(K); S = null; DADOS = null; render(); }
+function sair(){ localStorage.removeItem(K); S = null; DADOS = null; DEMO = false; render(); }
+
+/* ---------- DEMONSTRACAO: dados ficticios montados so na tela (nao toca a nuvem) ----------
+   Serve para entender o painel e para mostrar a uma industria sem expor cliente nenhum.
+   Nomes, precos e volumes sao inventados. */
+let DEMO = false;
+function carregarDemo(){
+  let semente = 20260925; const rnd = () => { semente = (semente*1103515245 + 12345) % 2147483648; return semente/2147483648; };
+  const pick = a => a[Math.floor(rnd()*a.length)];
+  const marcas = [{id:'mh', nome:'Harus + PP'}, {id:'mc', nome:'Coffee ++'}];
+  const vendedores = [{id:'v1', nome:'Anderson Santos', codigo:'001', gestor:false},{id:'v2', nome:'Vendedor Exemplo 2', codigo:'002', gestor:false}];
+  const PR = [
+    ['d1','D-01','Dadinho de Tapioca Tradicional','Dadinho de Tapioca','mh',190],['d2','D-02','Dadinho de Tapioca Calabresa','Dadinho de Tapioca','mh',195],
+    ['q1','Q-01','Pão de Queijo Tradicional 1 kg','Pão de Queijo','mh',160],['q2','Q-02','Pão de Queijo Coquetel 1 kg','Pão de Queijo','mh',165],
+    ['p1','P-01','Palitinho de Queijo','Palitinho','mh',140],['k1','K-01','Coxinha de Frango','Coxinha','mh',150],['c1','C-01','Croissant Amanteigado','Croissant','mh',210],
+    ['g1','G-01','Café Especial Grão 250 g','Grão 250 g','mc',560],['m1','M-01','Café Especial Moído 250 g','Moído 250 g','mc',560],['r1','R-01','Café Drip (display 10 sachês)','Drip','mc',170]];
+  const prod = {}; PR.forEach(x=>{ prod[x[0]] = {id_local:x[0], cod:x[1], nome:x[2], categoria:x[3], marca_id:x[4]}; });
+  const BAI = [['Centro','Petrópolis'],['Itaipava','Petrópolis'],['Quitandinha','Petrópolis'],['Corrêas','Petrópolis'],['Várzea','Teresópolis'],['Alto','Teresópolis'],['Centro','Três Rios']];
+  const SEG = ['Supermercado','Padaria','Lanchonete','Cafeteria','Mercadinho','Restaurante'];
+  const clientes = [];
+  const redes = [['Rede Serrana',6],['Supermercados Vale Verde',4],['Padarias Pão da Serra',3]];
+  let n = 0;
+  redes.forEach(([r,q])=>{ for(let i=1;i<=q;i++){ const b = pick(BAI); clientes.push({id:'c'+(++n), razao:r+' Ltda', fantasia:r, rede:r, loja:String(i), canal:/Padaria/.test(r)?'FOODSERVICE':'VAREJO', bairro:b[0], cidade:b[1], vendedor_id:'v1', dados:{segmento:/Padaria/.test(r)?'Padaria':'Supermercado', contato:'Comprador', fone:'(24) 2200-00'+String(n).padStart(2,'0')}, apagado:false}); } });
+  const NOMES = ['Mercado Bom Preço','Padaria Estrela','Lanchonete do Zé','Café da Praça','Mercadinho São José','Empório Serra','Padaria Imperial','Lanches Rápido','Cafeteria Aroma','Mercado Central','Restaurante Sabor','Padaria Nova','Mercadinho Família','Café Colonial','Lanchonete Ponto Certo','Mercado União','Padaria Trigo de Ouro','Café Expresso','Mercearia Popular','Padaria Doce Lar','Lanchonete Bom Gosto','Mercado Econômico','Cafeteria Serra Café','Padaria Real','Mercadinho do Bairro'];
+  NOMES.forEach(nome=>{ const b = pick(BAI); const seg = /Padaria/.test(nome)?'Padaria':/Lanch/.test(nome)?'Lanchonete':/Caf/.test(nome)?'Cafeteria':/Restaur/.test(nome)?'Restaurante':/Mercadinho|Mercearia/.test(nome)?'Mercadinho':'Supermercado';
+    clientes.push({id:'c'+(++n), razao:nome+' Ltda', fantasia:nome, rede:'', loja:'', canal:/Mercad|Mercea/.test(seg)||seg==='Supermercado'?'VAREJO':'FOODSERVICE', bairro:b[0], cidade:b[1], vendedor_id:rnd()<0.8?'v1':'v2', dados:{segmento:seg, contato:'Responsável', fone:'(24) 9'+String(10000000+n*371).slice(0,8)}, apagado:false}); });
+  const pedidos = []; let num = 0;
+  const hoje = new Date(); const base = ymAdd(hojeYM(), -24);
+  for(let k=0; k<=24; k++){
+    const ym = ymAdd(base, k); const mes = +ym.slice(5,7);
+    const sazon = [0.85,0.8,0.95,1,1.05,1.1,1.15,1.05,1,1.05,1.15,1.35][mes-1];
+    const cresc = 0.8 + k*0.025;
+    const ativos = clientes.filter(()=>rnd() < 0.55*sazon*Math.min(1.2,cresc));
+    ativos.forEach(c=>{
+      const vezes = rnd()<0.3 ? 2 : 1;
+      for(let v=0; v<vezes; v++){
+        const cafe = rnd() < (c.dados.segmento==='Cafeteria'?0.7:0.25);
+        const ps = PR.filter(x=>x[4]===(cafe?'mc':'mh'));
+        const escolh = ps.filter(()=>rnd()<0.45); if(!escolh.length) escolh.push(pick(ps));
+        const tam = c.rede ? 2.2 : 1;
+        const itens = escolh.map(x=>({skuId:x[0], cod:x[1], nome:x[2], un:'CX', qtd:Math.max(1,Math.round((1+rnd()*4)*tam*cresc)), preco:Math.round(x[5]*(0.92+rnd()*0.12)*100)/100}));
+        const dia = Math.min(28, 1+Math.floor(rnd()*27));
+        const data = ym+'-'+String(dia).padStart(2,'0');
+        if(data > hoje.toISOString().slice(0,10)) continue;
+        const bon = rnd()<0.05;
+        const st = rnd()<0.04 ? 'Cancelado' : (ym>=ymAdd(hojeYM(),-1) ? pick(['Fechado','Enviado','Faturado']) : 'Faturado');
+        const total = itens.reduce((s,i)=>s+i.qtd*i.preco,0);
+        num++;
+        pedidos.push({id:'p'+num, num:(cafe?'COF-':'HAR-')+String(num).padStart(4,'0'), status:st, data:data, total:total, kg:0, cx:itens.reduce((s,i)=>s+i.qtd,0),
+          vendedor_id:c.vendedor_id, cliente_id:c.id, marca_id:cafe?'mc':'mh', dados:{itens:itens, tipo:bon?'bonificacao':'venda', marca:cafe?'Coffee ++':'Harus + PP', cond:pick(['21 dias','28 dias','14/28 dias']), numCliente:rnd()<0.3?'OC '+(1000+num):''}});
+      }
+    });
+  }
+  const cli = {}; clientes.forEach(c=>{ c.seg = c.dados.segmento; cli[c.id] = c; });
+  const mk = {}; marcas.forEach(m=>mk[m.id]=m.nome);
+  DADOS = { quem:{vendedor:'Demonstração', codigo:'DEMO'}, clientes, cli, carteira:clientes, vendedores, marcas, mk, prod, quando:new Date() };
+  DADOS.pedidos = pedidos.map(prep);
+  if(!F.mes) F.mes = ymAdd(hojeYM(), -1);
+  DEMO = true; render();
+}
 async function carregar(){
   await renovar();
   let quem = {}; try{ quem = await api('/rest/v1/rpc/quem_sou', {}) || {}; }catch(e){ quem = {}; }
@@ -526,16 +585,18 @@ function telaLogin(msg){
     '<label>E-mail</label><input id="l_email" type="email" value="'+esc(S&&S.email||'')+'">'+
     '<label>Senha</label><input id="l_senha" type="password">'+
     '<button class="bt" id="l_ok">Entrar</button>'+(msg?'<div class="erro">'+esc(msg)+'</div>':'')+
+    '<button class="bt" id="l_demo" style="background:#fff;color:var(--navy);border:1px solid var(--navy);margin-top:8px">Ver demonstração (dados fictícios)</button>'+
     '<div class="peq" style="margin-top:14px">Painel · versão '+VERSAO+'</div></div>';
 }
 const ABAS = [['raio','Raio-X'],['redes','Redes'],['clientes','Clientes'],['produtos','Produtos'],['pedidos','Pedidos'],['sem','Sem comprar']];
 function render(){
   const app = el('app');
-  if(!S || !S.access_token){ app.innerHTML = telaLogin(ERRO); el('l_ok').onclick = aoEntrar; el('l_senha').onkeydown = e=>{ if(e.key==='Enter') aoEntrar(); }; return; }
+  if(!DEMO && (!S || !S.access_token)){ app.innerHTML = telaLogin(ERRO); el('l_demo').onclick = ()=>{ F.mes=''; carregarDemo(); }; el('l_ok').onclick = aoEntrar; el('l_senha').onkeydown = e=>{ if(e.key==='Enter') aoEntrar(); }; return; }
   if(!DADOS){ app.innerHTML = '<div class="vazio" style="padding:60px">Carregando a nuvem…</div>'+(ERRO?'<div class="erro" style="text-align:center">'+esc(ERRO)+' <button class="bt bt-r" id="b_sair2">Sair</button></div>':''); const b = el('b_sair2'); if(b) b.onclick = sair; return; }
   const corpo = ({raio:telaRaio, redes:telaRedes, clientes:telaClientes, produtos:telaProdutos, pedidos:telaPedidos, sem:telaSem}[F.aba] || telaRaio)();
   const rolagem = window.scrollY;
-  app.innerHTML = '<header><h1>Painel de Vendas · <b>'+esc(ABAS.find(a=>a[0]===F.aba)[1])+'</b></h1><small>atualizado '+DADOS.quando.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})+'</small>'+
+  app.innerHTML = (DEMO ? '<div style="background:#F2A900;color:#1E1C1A;text-align:center;font-weight:800;font-size:12.5px;padding:5px 8px">DEMONSTRAÇÃO · dados fictícios, só nesta tela · <a href="#" id="b_sairdemo" style="color:#1E1C1A">sair da demonstração</a></div>' : '')+
+    '<header><h1>Painel de Vendas · <b>'+esc(ABAS.find(a=>a[0]===F.aba)[1])+'</b></h1><small>atualizado '+DADOS.quando.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})+'</small>'+
     '<div class="dir"><button class="bt bt-f" id="b_filtros">Filtros</button><button class="bt bt-l" id="b_rec">Atualizar</button><button class="bt bt-l" id="b_print">Imprimir / PDF</button><button class="bt bt-l" id="b_sair">Sair</button></div></header>'+
     '<nav>'+ABAS.map(a=>'<button class="'+(F.aba===a[0]?'on':'')+'" data-aba="'+a[0]+'">'+a[1]+'</button>').join('')+'</nav>'+
     '<div class="layout">'+lateral()+'<main>'+corpo+'</main></div>';
@@ -545,7 +606,8 @@ function render(){
     .forEach(([id,k])=>liga(id, e=>{ F[k] = e.target.value; guardaFiltros(); render(); }));
   liga('f_busca', e=>{ F.busca = e.target.value; const pos = e.target.selectionStart; render(); const n = el('f_busca'); if(n){ n.focus(); n.setSelectionRange(pos,pos); } }, 'oninput');
   liga('b_limpa', ()=>{ Object.assign(F, {marca:'',vend:'',canal:'',seg:'',cidade:'',rede:'',busca:''}); guardaFiltros(); render(); }, 'onclick');
-  liga('b_rec', recarregar, 'onclick'); liga('b_print', ()=>window.print(), 'onclick'); liga('b_sair', sair, 'onclick');
+  liga('b_rec', ()=>{ if(DEMO) carregarDemo(); else recarregar(); }, 'onclick');
+  liga('b_sairdemo', e=>{ e.preventDefault(); DEMO = false; DADOS = null; F.mes=''; render(); if(S && S.access_token) recarregar(); }, 'onclick'); liga('b_print', ()=>window.print(), 'onclick'); liga('b_sair', sair, 'onclick');
   liga('b_filtros', ()=>el('lat').classList.add('aberto'), 'onclick'); liga('b_fecha', ()=>el('lat').classList.remove('aberto'), 'onclick');
   document.querySelectorAll('[data-aba]').forEach(b=>b.onclick = ()=>{ F.aba = b.dataset.aba; F.busca=''; F.ord=''; guardaFiltros(); window.scrollTo(0,0); render(); });
   document.querySelectorAll('th[data-ord]').forEach(t=>t.onclick = ()=>{ const k = t.dataset.ord; if(F.ord===k) F.dir = -F.dir; else { F.ord = k; F.dir = /cli|nome|num|status/.test(k) ? 1 : -1; } render(); });
