@@ -657,7 +657,7 @@ const ico = (n,cl) => '<svg class="'+(cl||'')+'" viewBox="0 0 24 24" fill="none"
 /* ---------------- armazenamento ---------------- */
 const K_DADOS = 'harus.dados.v1';
 const K_CAT   = 'harus.catalogo.v1';
-const VERSAO_APP = '2026-09-24 r33';   /* aparece em Ajustes e no login: para saber qual versao esta rodando */
+const VERSAO_APP = '2026-09-24 r34';   /* aparece em Ajustes e no login: para saber qual versao esta rodando */
 const K_GMAIL = 'harus.gmail.v1';      /* acesso ao Gmail deste aparelho (fora do backup) */
 const K_ABA   = 'harus.aba.v1';
 
@@ -5379,15 +5379,19 @@ async function sincronizar(){
     const vivosC = {}, vivosP = {};
     D.clientes.forEach(c=>{ if(!c.demo) vivosC[c.id] = true; });
     D.pedidos.forEach(p=>{ if(!p.demo) vivosP[p.id] = true; });
-    /* Regra dura, aprendida no teste de 03/09: um aparelho so pode marcar coisas como
-       apagadas na nuvem se ele TEM os dados de verdade (algum registro real aqui) ou se
-       ele BAIXOU da nuvem nesta vida (baixadoEm). Sem isso, um aparelho zerado que acabou
-       de entrar marcaria tudo como apagado no primeiro ciclo. */
-    const temReais = Object.keys(vivosC).length > 0 || Object.keys(vivosP).length > 0;
-    if(D.nuvem.ultimoOk && (temReais || D.nuvem.baixadoEm)){
-      await nuvemFetch('/rest/v1/rpc/marcar_apagados', { tipo:'cliente', vivos: vivosC });
-      await nuvemFetch('/rest/v1/rpc/marcar_apagados', { tipo:'pedido',  vivos: vivosP });
-    }
+    /* r34: marca como apagado SO o que este aparelho enviou e depois apagou (lista exata de ids).
+       Nunca "tudo que nao esta aqui": com dois aparelhos no mesmo login, um apagaria o do outro. */
+    const mortosC = [], mortosP = [];
+    Object.keys(D.nuvem.enviados).forEach(k=>{
+      const id = k.slice(2);
+      if(k[0]==='c' && !vivosC[id]) mortosC.push(id);
+      if(k[0]==='p' && !vivosP[id]) mortosP.push(id);
+    });
+    try{
+      if(mortosC.length) await nuvemFetch('/rest/v1/rpc/marcar_apagados_ids', { tipo:'cliente', ids: mortosC });
+      if(mortosP.length) await nuvemFetch('/rest/v1/rpc/marcar_apagados_ids', { tipo:'pedido',  ids: mortosP });
+    }catch(e){ /* funcao ainda nao criada na nuvem: nao marca nada (seguro) e tenta de novo depois */
+      mortosC.concat(mortosP).length && console.warn('marcar_apagados_ids:', e.message); throw e; }
     /* limpa assinaturas de registros que nao existem mais */
     Object.keys(D.nuvem.enviados).forEach(k=>{
       const id = k.slice(2);
