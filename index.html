@@ -224,6 +224,14 @@ button.et-rede{cursor:pointer}
 .refs span{border-radius:7px;padding:5px 9px;font-size:calc(11.5px * var(--esc));white-space:nowrap;
   border:1px solid transparent}
 .refs b{font-weight:800;font-variant-numeric:tabular-nums}
+/* cabecalho de categoria na lista de produtos (r33): tem que saltar aos olhos na rua, claro ou escuro */
+.cab-cat{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:11px 13px 10px 12px;
+  background:var(--creme2);border-left:5px solid var(--dourado);color:var(--grafite);
+  font-size:calc(13px * var(--esc));font-weight:850;letter-spacing:.5px;text-transform:uppercase}
+.et-rank{background:#FFF1C2;color:#8F6908}
+html[data-tema="escuro"] .et-rank{background:rgba(242,169,0,.18);color:#F5C451}
+.notas-prod{margin-top:5px;font-size:calc(12px * var(--esc));font-style:italic;color:var(--grafite3);line-height:1.35}
+.cab-cat span{font-size:calc(11px * var(--esc));font-weight:700;letter-spacing:0;text-transform:none;color:var(--grafite3)}
 .refs .r-cx {background:var(--grafite);color:var(--creme);border-color:var(--grafite)}
 .refs .r-pct{background:#E9E5F2;color:#54467F;border-color:#DDD6EC}
 .refs .r-un {background:#E4EEF3;color:#255D75;border-color:#D3E4EC}
@@ -649,7 +657,7 @@ const ico = (n,cl) => '<svg class="'+(cl||'')+'" viewBox="0 0 24 24" fill="none"
 /* ---------------- armazenamento ---------------- */
 const K_DADOS = 'harus.dados.v1';
 const K_CAT   = 'harus.catalogo.v1';
-const VERSAO_APP = '2026-09-24 r32';   /* aparece em Ajustes e no login: para saber qual versao esta rodando */
+const VERSAO_APP = '2026-09-24 r33';   /* aparece em Ajustes e no login: para saber qual versao esta rodando */
 const K_GMAIL = 'harus.gmail.v1';      /* acesso ao Gmail deste aparelho (fora do backup) */
 const K_ABA   = 'harus.aba.v1';
 
@@ -741,6 +749,9 @@ function normalizarNuvem(){
   if(!D.cfg.nuvem) D.cfg.nuvem = Object.assign({}, CFG_PADRAO.nuvem);
 }
 normalizarNuvem();
+/* r33: com dois logins, um aparelho podia marcar como apagado o que era do outro. Cada aparelho
+   reenvia uma vez tudo o que tem vivo; a nuvem volta a mostrar certo. */
+if(!D.nuvem.reenvioR33){ D.nuvem.enviados = {}; D.nuvem.reenvioR33 = true; }
 /* a marca em uso: tudo que era "Harus + PP" cravado no código lê daqui */
 function marcaAtual(){ return D.cfg.marcas.find(m=>m.id===D.cfg.marcaAtiva) || D.cfg.marcas[0]; }
 function nomeMarca(){ return marcaAtual().nome || 'Pedidos'; }
@@ -769,7 +780,7 @@ refazIndice();
 /* ---------------- catálogo: apoio ---------------- */
 function rotuloCaixa(p){
   const pc = p.pacotesPorCaixa||0;
-  return (p.caixa==='GRANDE'?'CX grande':p.caixa==='PEQUENA'?'CX pequena':'CX') + (pc?' · '+nm(pc)+' pct':'');
+  return (p.caixa==='GRANDE'?'CX grande':p.caixa==='PEQUENA'?'CX pequena':'CX') + (pc?' · '+nm(pc)+' '+(p.rotPacote?plPct(p):'pct'):'');
 }
 function kgDe(p,un){
   if(!p) return 0;
@@ -886,14 +897,19 @@ const ehBonif = p => !!p && (p.tipo||'venda')==='bonificacao';
 function tabelaDoItem(it){ const t = it.abaixoTabela || it.acimaTabela; return (t && t>0 && Math.abs(t-it.preco)>0.005) ? t : null; }
 /* Referencias (pacote, unidade, quilo) SEMPRE a partir do preco digitado, nunca da tabela:
    se ele vendeu a 180 em vez de 200, o pacote do cliente sai sobre 180. */
+/* como se chama o pacote e a unidade deste produto: padrao "o pacote"/"a unidade";
+   drip da Coffee ++: "o display" (10 saches) e "o sache" */
+const rotPct = p => (p && p.rotPacote) || 'o pacote';
+const rotUn  = p => (p && p.rotUnidade) || 'a unidade';
+const plPct  = p => { const w = rotPct(p).replace(/^(o|a) /,''); return w==='pacote' ? 'pacotes' : w+'s'; };
 function refsDoItem(it, p){
   const r = []; if(!p) return r;
   const cx = Number(it.preco)||0; if(!cx) return r;
   const pct = p.pacotesPorCaixa ? cx/p.pacotesPorCaixa : 0;
   const un  = (pct && p.unNoPacote) ? pct/p.unNoPacote : 0;
   const kg  = p.kgCaixa ? cx/p.kgCaixa : 0;
-  if(pct) r.push(brl(pct)+' o pacote');
-  if(un && !(pct && Math.abs(un-pct)<0.005)) r.push(brl(un)+' a unidade');
+  if(pct) r.push(brl(pct)+' '+rotPct(p));
+  if(un && !(pct && Math.abs(un-pct)<0.005)) r.push(brl(un)+' '+rotUn(p));
   if(kg)  r.push(brl(kg)+' o quilo');
   return r;
 }
@@ -909,8 +925,13 @@ function descontoNegociado(ped){
   return { valor: econ, pct: base>0 ? econ/base*100 : 0 };
 }
 const VENDE = p => VALE(p.status) && !ehBonif(p);
-function pedidosValidos(){ return D.pedidos.filter(VENDE); }              /* vendas: o que fatura */
-function pedidosBonif(){ return D.pedidos.filter(p=>VALE(p.status) && ehBonif(p)); }
+/* pedido de qual industria: antigos sem carimbo sao da primeira (Harus) */
+const marcaDoPedido = p => (p && p.marcaId) || ((D.cfg.marcas[0]||{}).id);
+/* filtro de industria no Painel e no Historico ('' = todas) */
+let FMARCA = '';
+const passaMarca = p => !FMARCA || marcaDoPedido(p)===FMARCA;
+function pedidosValidos(){ return D.pedidos.filter(p=>VENDE(p) && (ABA!=='painel' || passaMarca(p))); }              /* vendas: o que fatura */
+function pedidosBonif(){ return D.pedidos.filter(p=>VALE(p.status) && ehBonif(p) && (ABA!=='painel' || passaMarca(p))); }
 function seloTipo(p){ return ehBonif(p) ? '<span class="et et-al">BONIFICAÇÃO</span>' : ''; }
 
 function ultimaCompra(clienteId){
@@ -1095,6 +1116,7 @@ function ordemCanal(p){ return p.canal==='VAREJO' ? 0 : p.canal==='FOODSERVICE' 
 function compararProdutos(a,b){
   return ordemMarca(a) - ordemMarca(b) ||
     ordemCanal(a) - ordemCanal(b) ||
+    (a.ordemCat||50) - (b.ordemCat||50) ||
     (a.categoria||'').localeCompare(b.categoria||'','pt-BR') ||
     a.nome.localeCompare(b.nome,'pt-BR') ||
     (a.caixa==='GRANDE'?0:1)-(b.caixa==='GRANDE'?0:1);
@@ -1105,15 +1127,16 @@ function rotuloGrupo(p){ return String(p.marca||'').toUpperCase()+' · '+(CANAL_
    Recalcula so quando muda o cliente. */
 let HIST = { cli:null, mapa:{} };
 function historicoDoCliente(clienteId){
-  if(HIST.cli === clienteId) return HIST.mapa;
+  const chave = clienteId+'|'+marcaAtual().id;
+  if(HIST.cli === chave) return HIST.mapa;
   const mapa = {};
-  D.pedidos.filter(p=>p.clienteId===clienteId && VALE(p.status))
+  D.pedidos.filter(p=>p.clienteId===clienteId && VALE(p.status) && marcaDoPedido(p)===marcaAtual().id)
     .sort((a,b)=>String(a.data).localeCompare(String(b.data)))
     .forEach(p=>{ (p.itens||[]).forEach(it=>{
       const h = mapa[it.skuId] || (mapa[it.skuId] = {vezes:0});
       h.vezes++; h.data = p.data; h.preco = it.preco; h.qtd = it.qtd; h.un = it.un; h.num = p.num;
     }); });
-  HIST = { cli:clienteId, mapa };
+  HIST = { cli:chave, mapa };
   return mapa;
 }
 function seloJaComprou(p, ped){
@@ -1160,10 +1183,13 @@ function cartaoProduto(p, ped){
       '<span class="et '+(p.marca==='PP'?'et-pp':'et-har')+'">'+esc(p.marca)+'</span>'+
       (fCanal==='TODOS'?'<span class="et '+(p.canal==='VAREJO'?'et-vrj':'et-fs')+'">'+CANAL_NOME[p.canal]+'</span>':'')+
       seloJaComprou(p, ped)+
+      (p.rankingNacional ? '<span class="et et-rank" title="Ranking de vendas da indústria no Brasil, neste formato">'+p.rankingNacional+'º mais vendido</span>' : '')+
       (kgTxt?'<span class="txt">'+kgTxt+'</span>':'')+
       (unTxt?'<span class="txt">· '+unTxt+'</span>':'')+
       (it?'<span class="et et-fa">'+ico('check')+' no pedido</span>':'')+
-    '</div></div></div>'+
+    '</div>'+
+    (p.notas ? '<div class="notas-prod">'+esc(p.notas)+(p.intensidade?' · intensidade '+p.intensidade:'')+'</div>' : '')+
+    '</div></div>'+
     (p.flag?'<div class="aviso">'+ico('alerta')+'<span>'+esc(p.flag)+'</span></div>':'')+
     '<div class="acoes">'+botoes+'</div>'+
     (ref?'<div class="refs">'+ref+'</div>':'')+
@@ -1175,11 +1201,11 @@ function cartaoProduto(p, ped){
 function contaDoProduto(p){
   const L = [];
   if(p.pacotesPorCaixa && p.pPacote)
-    L.push('<div>'+brl(p.pCaixa)+' a caixa ÷ <b>'+nm(p.pacotesPorCaixa)+' pacotes</b> = '+
-           brl(p.pPacote)+' o pacote</div>');
-  if(p.unNoPacote && p.pUnidade)
-    L.push('<div>'+brl(p.pPacote)+' o pacote ÷ <b>'+nm(p.unNoPacote, p.unNoPacote%1?1:0)+
-           ' unidades</b> = '+brl(p.pUnidade)+' a unidade</div>');
+    L.push('<div>'+brl(p.pCaixa)+' a caixa ÷ <b>'+nm(p.pacotesPorCaixa)+' '+plPct(p)+'</b> = '+
+           brl(p.pPacote)+' '+rotPct(p)+'</div>');
+  if(p.unNoPacote && p.pUnidade && p.unNoPacote>1)
+    L.push('<div>'+brl(p.pPacote)+' '+rotPct(p)+' ÷ <b>'+nm(p.unNoPacote, p.unNoPacote%1?1:0)+
+           ' '+(p.rotUnidade ? rotUn(p).replace(/^(o|a) /,'')+'s' : 'unidades')+'</b> = '+brl(p.pUnidade)+' '+rotUn(p)+'</div>');
   if(p.kgCaixa && p.pKg)
     L.push('<div>'+brl(p.pCaixa)+' a caixa ÷ <b>'+nm(p.kgCaixa,2).replace(/,00$/,'')+' kg</b> = '+
            brl(p.pKg)+' o quilo</div>');
@@ -1190,10 +1216,12 @@ function contaDoProduto(p){
    A unidade do varejo é o preço do pacote dividido pelas unidades que vêm nele. */
 function referencias(p){
   const partes = [];
-  if(p.pPacote)  partes.push('<span class="r-pct"><b>'+brl(p.pPacote)+'</b> o pacote</span>');
+  /* tabela de preco unico (Coffee ++): a caixa tambem aparece, com o que vem dentro */
+  if(p.rotCaixa && p.pCaixa) partes.push('<span class="r-cx"><b>'+brl(p.pCaixa)+'</b> '+esc(p.rotCaixa)+'</span>');
+  if(p.pPacote)  partes.push('<span class="r-pct"><b>'+brl(p.pPacote)+'</b> '+rotPct(p)+'</span>');
   /* pacote de uma unidade so: repetir o mesmo numero so confunde */
   if(p.pUnidade && !(p.pPacote && Math.abs(p.pUnidade-p.pPacote)<0.005))
-    partes.push('<span class="r-un"><b>'+brl(p.pUnidade)+'</b> a unidade</span>');
+    partes.push('<span class="r-un"><b>'+brl(p.pUnidade)+'</b> '+rotUn(p)+'</span>');
   if(p.pKg)      partes.push('<span class="r-kg"><b>'+brl(p.pKg)+'</b> o quilo</span>');
   return partes.join('');
 }
@@ -1216,9 +1244,9 @@ function listaProdutos(ped){
     }
     if(p.categoria!==catAtual){
       catAtual = p.categoria;
-      h += '<div style="padding:9px 13px;background:var(--creme2);font-size:calc(11px * var(--esc));'+
-           'font-weight:800;letter-spacing:.6px;text-transform:uppercase;color:var(--grafite3)">'+
-           esc(catAtual)+'</div>';
+      /* cabecalho da categoria bem visivel: faixa dourada a esquerda, texto forte e quantos itens tem */
+      const nCat = ps.filter(x=>x.categoria===catAtual && rotuloGrupo(x)===rotuloGrupo(p)).length;
+      h += '<div class="cab-cat">'+esc(catAtual)+'<span>'+nCat+' '+(nCat===1?'item':'itens')+'</span></div>';
     }
     h += cartaoProduto(p,ped);
   });
@@ -1241,7 +1269,8 @@ function chipsProduto(ped){
 
   const cats = [];
   CAT.forEach(p=>{ if((canal==='TODOS' || p.canal===canal || p.canal==='TODOS') && cats.indexOf(p.categoria)<0) cats.push(p.categoria); });
-  cats.sort((a,b)=>a.localeCompare(b,'pt-BR'));
+  const oc = {}; CAT.forEach(p=>{ if(oc[p.categoria]==null) oc[p.categoria] = p.ordemCat||50; });
+  cats.sort((a,b)=>(oc[a]-oc[b]) || a.localeCompare(b,'pt-BR'));
   h += '<div class="chips"><button class="chip '+(!fCat?'on':'')+'" data-a="setCat" data-i="">Todos</button>';
   cats.forEach(c=>{
     h += '<button class="chip '+(fCat===c?'on':'')+'" data-a="setCat" data-i="'+esc(c)+'">'+esc(c)+'</button>';
@@ -1409,9 +1438,9 @@ function seletorCliente(){
     h += '<button class="bt bt-p bt-bloco bt-alto" data-a="novoPedidoIniciar">'+ico('mais')+'NOVO PEDIDO'+(D.cfg.marcas.length>1?' · '+esc(nomeMarca()).toUpperCase():'')+'</button>'+
       '<div class="peq" style="margin:7px 3px 14px">Escolhe o cliente, preenche os dados, monta os itens e confere. '+
       (D.clientes.length ? '' : 'Ainda não há cliente cadastrado: cadastre na aba <b>Clientes</b> primeiro.')+'</div>';
-    const ult = D.pedidos.filter(p=>p.status!=='Rascunho').sort((a,b)=>(b.criadoEm||b.data||'').localeCompare(a.criadoEm||a.data||'')).slice(0,4);
+    const ult = D.pedidos.filter(p=>p.status!=='Rascunho' && marcaDoPedido(p)===marcaAtual().id).sort((a,b)=>(b.criadoEm||b.data||'').localeCompare(a.criadoEm||a.data||'')).slice(0,4);
     if(ult.length){
-      h += '<div class="secao">Últimos pedidos</div><div class="cartao">';
+      h += '<div class="secao">Últimos pedidos'+(D.cfg.marcas.length>1?' · '+esc(nomeMarca()):'')+'</div><div class="cartao">';
       ult.forEach(p=>{
         const c = clienteDe(p), t = totais(p);
         h += '<button class="lin" data-a="abrirPedido" data-i="'+esc(p.id)+'">'+
@@ -1622,7 +1651,8 @@ ACOES.escolherCliente = id => {
 /* Historico de compras do cliente sem sair do pedido: pedidos e SKUs */
 ACOES.histCliente = id => {
   const c = clientePorId(id); if(!c) return;
-  const peds = D.pedidos.filter(p=>p.clienteId===id && VALE(p.status)).sort((a,b)=>b.data.localeCompare(a.data)).slice(0,12);
+  const mk = marcaAtual();
+  const peds = D.pedidos.filter(p=>p.clienteId===id && VALE(p.status) && marcaDoPedido(p)===mk.id).sort((a,b)=>b.data.localeCompare(a.data)).slice(0,12);
   let h = '';
   if(!peds.length) h = '<div class="vazio">'+ico('historico')+'<p>Ainda não comprou</p><span>Quando fechar o primeiro pedido, ele aparece aqui.</span></div>';
   peds.forEach(p=>{
@@ -1635,15 +1665,15 @@ ACOES.histCliente = id => {
         (p.itens||[]).map(it=>{ const pr=porId[it.skuId]; return esc(pr?pr.nome:(it.nome||it.skuId))+' — '+nm(it.qtd)+' '+esc(UN_CURTO[it.un]||it.un)+' × '+brl(it.preco); }).join('<br>')+
       '</div></div></div>';
   });
-  modal('Histórico de '+esc(c.fantasia||c.razao), h,
+  modal('Histórico de '+esc(c.fantasia||c.razao)+(D.cfg.marcas.length>1?' · '+esc(mk.nome):''), h,
     '<div class="linha-bt"><button class="bt bt-l" data-a="fechaModal">Fechar</button>'+
     (peds.length?'<button class="bt bt-p" data-a="repetirUltimo" data-i="'+esc(id)+'">'+ico('repetir')+'Repetir o último</button>':'')+'</div>');
 };
 /* Repete o ultimo pedido fechado deste cliente no rascunho atual, com o preco de tabela de hoje */
 ACOES.repetirUltimo = id => {
   const ped = pedidoRascunho(); if(!ped || ped.clienteId!==id){ aviso('Abra um pedido para este cliente primeiro.'); return; }
-  const ult = D.pedidos.filter(p=>p.clienteId===id && VALE(p.status) && p.id!==ped.id).sort((a,b)=>b.data.localeCompare(a.data))[0];
-  if(!ult){ aviso('Este cliente ainda não tem pedido fechado.'); return; }
+  const ult = D.pedidos.filter(p=>p.clienteId===id && VALE(p.status) && p.id!==ped.id && marcaDoPedido(p)===marcaDoPedido(ped)).sort((a,b)=>b.data.localeCompare(a.data))[0];
+  if(!ult){ aviso('Este cliente ainda não tem pedido fechado'+(D.cfg.marcas.length>1?' na '+nomeMarca():'')+'.'); return; }
   const aplica = () => {
     let n = 0, fora = 0;
     (ult.itens||[]).forEach(it=>{
@@ -3855,7 +3885,7 @@ ACOES.simularMargem = i => {
 
 function telaPainel(){
   const mes = PER.tipo==='mes';
-  let topo = '<div class="chips" style="justify-content:space-between;padding-bottom:8px">'+
+  let topo = chipsFiltroMarca() + '<div class="chips" style="justify-content:space-between;padding-bottom:8px">'+
     (mes?'<button class="chip" data-a="mesAnterior" aria-label="Período anterior">'+
       '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" style="width:15px;height:15px;transform:rotate(180deg)">'+IC.seta+'</svg></button>':'')+
     '<button class="chip on" style="flex:1;justify-content:center" data-a="escolherPeriodo">'+
@@ -4173,16 +4203,22 @@ function linhaPedido(p, comCliente){
     '<span class="seta">'+ico('seta')+'</span></button>';
 }
 
+function chipsFiltroMarca(){
+  if(D.cfg.marcas.length < 2) return '';
+  return '<div class="chips" style="padding-bottom:6px"><button class="chip '+(!FMARCA?'on':'')+'" data-a="setFMarca" data-i="">Todas as indústrias</button>'+
+    D.cfg.marcas.map(m=>'<button class="chip '+(FMARCA===m.id?'on':'')+'" data-a="setFMarca" data-i="'+esc(m.id)+'">'+esc(m.nome)+'</button>').join('')+'</div>';
+}
+ACOES.setFMarca = id => { FMARCA = id||''; render(); };
 function telaHistorico(){
-  let lista = D.pedidos.slice();
+  let lista = D.pedidos.filter(passaMarca);
   if(fStatus) lista = lista.filter(p=>p.status===fStatus);
   lista.sort((a,b)=> b.data.localeCompare(a.data) || (b.criadoEm||'').localeCompare(a.criadoEm||''));
 
   const cont = {};
-  D.pedidos.forEach(p=>{ cont[p.status] = (cont[p.status]||0)+1; });
+  D.pedidos.filter(passaMarca).forEach(p=>{ cont[p.status] = (cont[p.status]||0)+1; });
 
-  let h = '<div class="chips">'+
-    '<button class="chip '+(!fStatus?'on':'')+'" data-a="setStatusF" data-i="">Todos<span class="n">'+D.pedidos.length+'</span></button>'+
+  let h = chipsFiltroMarca() + '<div class="chips">'+
+    '<button class="chip '+(!fStatus?'on':'')+'" data-a="setStatusF" data-i="">Todos<span class="n">'+D.pedidos.filter(passaMarca).length+'</span></button>'+
     STATUS.map(s=>
       '<button class="chip '+(fStatus===s?'on':'')+'" data-a="setStatusF" data-i="'+s+'">'+s+
       '<span class="n">'+(cont[s]||0)+'</span></button>').join('')+
@@ -4559,6 +4595,7 @@ function telaAjustes(){
       '<input type="email" inputmode="email" autocapitalize="off" value="'+esc(cfg.repEmail)+'" placeholder="voce@email.com" data-ch="cfg" data-i="repEmail"></div>'+
   '</div></div>';
 
+  if(nuvemLogada()) h += '<div class="aviso" style="margin:0 0 12px">'+ico('pessoa')+'<span>Neste aparelho: <b>'+esc(quemRotulo())+'</b></span></div>';
   h += '<div class="secao">Marca / indústria</div><div class="cartao">';
   cfg.marcas.forEach((m,i)=>{
     const ativa = m.id===cfg.marcaAtiva;
@@ -5489,7 +5526,7 @@ function corpoNuvemAjustes(){
     'Trocou de celular ou de navegador: entra com o login e desce tudo.</div>'+
     '<table class="tabelinha">'+
     '<tr><td>Situação</td><td id="nv_estado" class="'+e.cor+'">'+esc(e.txt)+'</td></tr>'+
-    (SESSAO&&SESSAO.email?'<tr><td>Entrou como</td><td>'+esc((D.nuvem.quem&&D.nuvem.quem.vendedor)||SESSAO.email)+'</td></tr>':'')+
+    (SESSAO&&SESSAO.email?'<tr><td>Conectado como</td><td><b>'+esc(quemRotulo())+'</b></td></tr>':'')+
     '</table>';
   if(nuvemPronta()){
     h += '<div class="linha-bt mt10">'+
@@ -5527,6 +5564,12 @@ function faixaNuvem(){
 /* O nome que assina os documentos vem do cadastro do vendedor na nuvem, a menos que ele
    tenha escrito outro em Ajustes. Enquanto estava vazio, o app punha "Vendedor de exemplo"
    e isso saia no rodape do e-mail e do PDF. */
+/* "Anderson Santos (001) · e-mail" ou "Suporte (SUP) · e-mail · gestor": para nunca ficar na duvida de qual login esta no aparelho */
+function quemRotulo(){
+  const q = (D.nuvem && D.nuvem.quem) || {};
+  const email = q.email || (SESSAO && SESSAO.email) || '';
+  return [ (q.vendedor||'') + (q.codigo?' ('+q.codigo+')':''), email ].filter(Boolean).join(' · ') + (q.codigo==='SUP' ? ' · suporte' : '');
+}
 function ajustarRepDaNuvem(){
   const q = D.nuvem && D.nuvem.quem; if(!q || !q.vendedor) return false;
   const demo = (D.demoCfg && D.demoCfg.repNome) || 'Vendedor de exemplo';
