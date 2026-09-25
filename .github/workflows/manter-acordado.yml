@@ -1,8 +1,6 @@
 # Mantem a nuvem (Supabase gratis) acordada: o plano gratis pausa depois de 7 dias sem uso.
 # Roda 1x por dia e faz uma consulta leve. Nao le nem grava dado de cliente.
-# No GitHub: Add file > Create new file > nome: .github/workflows/manter-acordado.yml > cola isto > Commit.
-# E cadastre o segredo: Settings > Secrets and variables > Actions > New repository secret
-#   Name: SUPABASE_KEY   Secret: a chave sb_publishable_... (a mesma do app)
+# Segredo necessario: Settings > Secrets and variables > Actions > SUPABASE_KEY = a chave sb_publishable_... (a mesma do app)
 name: manter nuvem acordada
 on:
   schedule:
@@ -13,9 +11,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: consulta leve
+        env:
+          CHAVE: ${{ secrets.SUPABASE_KEY }}
         run: |
-          code=$(curl -s -o /dev/null -w '%{http_code}' -X POST \
-            -H "apikey: ${{ secrets.SUPABASE_KEY }}" -H "Content-Type: application/json" -d '{}' \
+          K=$(printf '%s' "$CHAVE" | tr -d '[:space:]"')
+          echo "chave: ${#K} caracteres, comeca com ${K:0:15}"
+          resp=$(curl -s -w '\n%{http_code}' -X POST \
+            -H "apikey: $K" -H "Content-Type: application/json" -d '{}' \
             https://wzymaphljtwaoikyyqrk.supabase.co/rest/v1/rpc/quem_sou)
+          code=$(printf '%s' "$resp" | tail -n1)
           echo "resposta: $code"
-          test "$code" = "200"
+          if [ "$code" != "200" ]; then printf '%s\n' "$resp" | head -n1 | cut -c1-200; exit 1; fi
