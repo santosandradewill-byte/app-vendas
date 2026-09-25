@@ -48,6 +48,26 @@ svg{display:block;width:100%;height:auto}
 .leg{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:11px;color:var(--muted);margin-top:4px}
 .leg i{display:inline-block;width:11px;height:11px;border-radius:2px;vertical-align:-1px;margin-right:4px}
 .rosca{display:flex;gap:14px;align-items:center;flex-wrap:wrap;justify-content:center}
+/* Raio-X numa tela so (p4): tiras de KPI, grades de 2 e 3 cartoes, graficos baixos */
+.tiles{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;margin-bottom:8px}
+.tile{background:#fff;border:1px solid var(--line);border-radius:10px;padding:8px 10px;border-top:3px solid var(--navy)}
+.tile .t{font-size:10.5px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;color:var(--muted)}
+.tile .v{font-size:20px;font-weight:800;margin:2px 0 1px;font-variant-numeric:tabular-nums;white-space:nowrap}
+.tile .c{font-size:11px;color:var(--muted);line-height:1.45}
+.tile .c b{font-weight:700}
+.g32{display:grid;grid-template-columns:3fr 2fr;gap:8px}
+.g3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
+.g32 .card,.g3 .card{margin-bottom:8px;padding:8px 10px}
+.g32 .card h2,.g3 .card h2{font-size:11.5px;margin-bottom:4px}
+.peq-r svg{width:125px!important;flex:0 0 125px!important}
+.peq-r ul{font-size:11.5px;min-width:120px}
+.peq-r li span{font-size:10.5px}
+.top5{list-style:none;margin:0;padding:0;font-size:12px}
+.top5 li{display:flex;justify-content:space-between;gap:8px;padding:4px 0;border-bottom:1px solid var(--line)}
+.top5 li:last-child{border-bottom:0}
+.top5 .n{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+@media (max-width:1150px){.tiles{grid-template-columns:repeat(3,1fr)}.g3{grid-template-columns:1fr 1fr}}
+@media (max-width:760px){.tiles{grid-template-columns:1fr 1fr}.g32,.g3{grid-template-columns:1fr}}
 .rosca svg{width:190px;flex:0 0 190px}
 .rosca ul{list-style:none;margin:0;padding:0;font-size:12px;min-width:170px;flex:1}
 .rosca li{display:flex;gap:6px;align-items:flex-start;margin:3px 0}
@@ -105,7 +125,7 @@ td.d,th.d{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
    Raio-X · Redes · Clientes · Produtos · Pedidos · Sem comprar.
    Lê a nuvem com login de gestor/suporte. Nada de preço, cliente ou chave no arquivo.
    ========================================================= */
-const VERSAO = '2026-09-25 p3';
+const VERSAO = '2026-09-25 p4';
 const K = 'painel.sessao.v1';
 const NUVEM_URL = 'https://wzymaphljtwaoikyyqrk.supabase.co';
 let S = null, DADOS = null, ERRO = '';
@@ -189,7 +209,7 @@ const VALE = st => st==='Fechado' || st==='Enviado' || st==='Faturado';
 
 /* ---------- filtros ---------- */
 const cliDe = id => DADOS.cli[id] || {};
-const nomeCli = c => c.fantasia || c.razao || '—';
+const nomeCli = c => (c.fantasia || c.razao || '—') + (c.rede && c.loja ? ' · loja '+c.loja : '');
 const vendDe = id => DADOS.vendedores.find(v=>v.id===id) || {};
 function passaCli(c){
   if(F.canal && c.canal!==F.canal) return false;
@@ -217,9 +237,9 @@ function barrasMes(valores, opc){
   /* valores: {ym: v}, 24 meses ate mesRef + mes corrente parcial se houver */
   opc = opc || {};
   /* celular: 13 meses (mes ref, o mesmo do ano passado e o corrente) com letra maior */
-  const compacto = window.innerWidth < 700;
-  let meses = Object.keys(valores).sort(); if(compacto) meses = meses.slice(-14);
-  const W = compacto ? 560 : 1000, H = compacto ? 280 : 250, top = 22, bot = 46, esq = 6;
+  const compacto = window.innerWidth < 700 || !!opc.pequeno;
+  let meses = Object.keys(valores).sort(); if(compacto) meses = meses.slice(-(opc.n||14));
+  const W = compacto ? 560 : 1000, H = opc.alt || (compacto ? 280 : 250), top = 20, bot = 44, esq = 6;
   const max = Math.max(1, ...meses.map(m=>valores[m]));
   const n = meses.length, lw = (W-esq*2)/n, bw = Math.min(46, lw*0.78);
   const y = v => top + (H-top-bot)*(1 - v/max);
@@ -243,25 +263,26 @@ function barrasMes(valores, opc){
   });
   return h+'</svg>';
 }
-function linhaMes(valores, fmt){
+function linhaMes(valores, fmt, pequena){
   const meses = Object.keys(valores).sort().filter(m=>valores[m]!=null);
   if(meses.length<2) return '<div class="vazio">Ainda poucos meses para a linha.</div>';
-  const W = 1000, H = 190, top = 26, bot = 34, esq = 30;
+  const W = pequena ? 560 : 1000, H = pequena ? 200 : 190, top = 26, bot = 34, esq = 30;
   const vs = meses.map(m=>valores[m]); const mx = Math.max(...vs), mn = Math.min(...vs), amp = (mx-mn)||1;
   const x = i => esq + i*(W-esq*2)/(meses.length-1), y = v => top + (H-top-bot)*(1-(v-mn)/amp);
   let h = '<svg viewBox="0 0 '+W+' '+H+'"><polyline fill="none" stroke="#1F4E79" stroke-width="2.5" points="'+meses.map((m,i)=>x(i).toFixed(1)+','+y(valores[m]).toFixed(1)).join(' ')+'"/>';
   meses.forEach((m,i)=>{ const ref = m===F.mes;
     h += '<circle cx="'+x(i).toFixed(1)+'" cy="'+y(valores[m]).toFixed(1)+'" r="'+(ref?7:4.5)+'" fill="'+(ref?'#fff':'#1F4E79')+'" stroke="#1F4E79" stroke-width="2"><title>'+ymRot(m)+': '+fmt(valores[m])+'</title></circle>';
     h += '<rect x="'+(x(i)-26).toFixed(1)+'" y="'+(y(valores[m])-24).toFixed(1)+'" width="52" height="17" rx="3" fill="#2B2825"/><text x="'+x(i).toFixed(1)+'" y="'+(y(valores[m])-12).toFixed(1)+'" font-size="11.5" text-anchor="middle" fill="#fff" font-weight="700">'+fmt(valores[m])+'</text>';
-    h += '<text x="'+x(i).toFixed(1)+'" y="'+(H-10)+'" font-size="12" text-anchor="middle" fill="#6B6762">'+ymRot(m)+'</text>';
+    h += '<text x="'+x(i).toFixed(1)+'" y="'+(H-10)+'" font-size="'+(pequena?13:12)+'" text-anchor="middle" fill="#6B6762">'+(pequena?MES[+m.slice(5,7)-1]:ymRot(m))+'</text>';
   });
   return h+'</svg>';
 }
-function rosca(itens, centro){
+function rosca(itens, centro, pequena){
   const tot = itens.reduce((s,x)=>s+x.v,0);
   if(!tot) return '<div class="vazio">Sem vendas no período.</div>';
   let top = itens.slice().sort((a,b)=>b.v-a.v);
-  if(top.length>8){ const resto = top.slice(7).reduce((s,x)=>s+x.v,0); top = top.slice(0,7).concat([{nm:'Outros', v:resto}]); }
+  const lim = pequena ? 5 : 8;
+  if(top.length>lim){ const resto = top.slice(lim-1).reduce((s,x)=>s+x.v,0); top = top.slice(0,lim-1).concat([{nm:'Outros', v:resto}]); }
   const R = 90, r = 56, cx = 100, cy = 100; let a0 = -Math.PI/2, h = '<svg viewBox="0 0 200 200">';
   top.forEach((x,i)=>{
     const a1 = a0 + x.v/tot*Math.PI*2, g = a1-a0>Math.PI ? 1 : 0;
@@ -271,7 +292,7 @@ function rosca(itens, centro){
     a0 = a1;
   });
   h += '<text x="100" y="98" text-anchor="middle" font-size="15" font-weight="800">'+esc(centro||('R$ '+mil(tot)))+'</text><text x="100" y="116" text-anchor="middle" font-size="10" fill="#6B6762">total</text></svg>';
-  return '<div class="rosca">'+h+'<ul>'+top.map((x,i)=>'<li><i style="background:'+PAL[i%PAL.length]+'"></i><div>'+esc(x.nm)+'<span>'+nm(x.v/tot*100,1)+'% · '+brl(x.v)+'</span></div></li>').join('')+'</ul></div>';
+  return '<div class="rosca'+(pequena?' peq-r':'')+'">'+h+'<ul>'+top.map((x,i)=>'<li><i style="background:'+PAL[i%PAL.length]+'"></i><div>'+esc(x.nm)+'<span>'+nm(x.v/tot*100,1)+'% · '+brl(x.v)+'</span></div></li>').join('')+'</ul></div>';
 }
 const legendaBarras = () => '<div class="leg"><span><i style="background:#E8604C;border:1px solid #8A3324"></i>mês ref. '+ymRot(F.mes)+'</span><span><i style="background:#F2C4B8;border:1px dashed #E8604C"></i>mesmo mês ano anterior '+ymRot(ymAdd(F.mes,-12))+'</span>'+(F.mes<hojeYM()?'<span><i style="background:#F2A900"></i>mês corrente (parcial)</span>':'')+'</div>';
 
@@ -290,34 +311,56 @@ function kpisDe(porMesVal, fmt, rotAcum){
 /* ---------- abas ---------- */
 function telaRaio(){
   const V = vendasB(), B = bonifB();
-  const fat = porMes(V, p=>p.total), cx = porMes(V, p=>p.cx);
+  const fat = porMes(V, p=>p.total), cx = porMes(V, p=>p.cx), nped = porMes(V, ()=>1);
   const pos = {}; janela24().forEach(m=>pos[m]=new Set()); V.forEach(p=>{ if(pos[p.ym]) pos[p.ym].add(p.cliente_id); });
   const posN = {}; Object.keys(pos).forEach(m=>posN[m]=pos[m].size);
-  const preco = {}; Object.keys(fat).forEach(m=>{ preco[m] = cx[m] ? fat[m]/cx[m] : null; });
-  const precoUlt = {}; Object.keys(preco).sort().slice(-13).forEach(m=>{ if(preco[m]!=null) precoUlt[m]=preco[m]; });
+  const preco = {}; Object.keys(fat).sort().slice(-13).forEach(m=>{ if(cx[m]) preco[m] = fat[m]/cx[m]; });
   const bon = porMes(B, p=>p.total);
   const ini12 = ymAdd(F.mes,-11), V12 = V.filter(p=>p.ym>=ini12 && p.ym<=F.mes);
   const agg = fn => { const m = {}; V12.forEach(p=>fn(p).forEach(([k,v])=>{ m[k]=(m[k]||0)+v; })); return Object.keys(m).map(k=>({nm:k||'—', v:m[k]})); };
   const porCat = agg(p=>p.itens.map(it=>[(it.cat||'Sem categoria'), it.qtd*it.preco]));
   const porMarca = agg(p=>[[p.marca||'—', p.total]]);
-  const porCanal = agg(p=>{ const c = cliDe(p.cliente_id); return [[({VAREJO:'Varejo',FOODSERVICE:'Food Service'}[c.canal]||'Sem canal')+(c.seg?' · '+c.seg:''), p.total]]; });
+  const porCanal = agg(p=>{ const c = cliDe(p.cliente_id); return [[({VAREJO:'Varejo',FOODSERVICE:'Food'}[c.canal]||'Sem canal')+(c.seg?' · '+c.seg:''), p.total]]; });
   const carteira = DADOS.carteira.filter(passaCli).length;
-  const bonRef = bon[F.mes]||0, fatRef = fat[F.mes]||0;
-  let h = '<p class="base">Base: pedidos fechados no app · atualizado '+DADOS.quando.toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})+' · mês ref. <b>'+ymRot(F.mes)+'</b></p>';
-  h += '<div class="card"><h2>Faturamento (R$)</h2>'+kpisDe(fat, v=>'R$ '+mil(v))+barrasMes(fat)+legendaBarras()+'</div>';
-  h += '<div class="card"><h2>Mix por categoria<small>R$ · últimos 12 meses até '+ymRot(F.mes)+'</small></h2>'+rosca(porCat)+'</div>';
-  h += '<div class="grid2"><div class="card"><h2>Mix por indústria<small>últimos 12 meses</small></h2>'+rosca(porMarca)+'</div><div class="card"><h2>Mix por canal e tipo<small>últimos 12 meses</small></h2>'+rosca(porCanal)+'</div></div>';
-  h += '<div class="card"><h2>Volume (caixas)</h2>'+kpisDe(cx, v=>nm(v,0)+' cx')+barrasMes(cx,{cor:'#1F4E79',corRef:'#E8604C',escuro:true,fmt:v=>nm(v,0)+' cx',fmtBar:v=>nm(v,0)})+legendaBarras()+'</div>';
-  h += '<div class="card"><h2>Preço médio por caixa (R$)</h2>'+linhaMes(precoUlt, v=>nm(v,2))+'</div>';
-  const distintos = (de, ate) => { const s = new Set(); V.forEach(p=>{ if(p.ym>=de && p.ym<=ate) s.add(p.cliente_id); }); return s.size; };
-  const anoR = F.mes.slice(0,4), anoA = String(+anoR-1);
-  const pYtd = distintos(anoR+'-01', F.mes), pLy = distintos(anoA+'-01', ymAdd(F.mes,-12));
-  const pRef = posN[F.mes]||0, pRefLy = posN[ymAdd(F.mes,-12)]||0, pAnt = posN[ymAdd(F.mes,-1)]||0;
-  const kp = (v,r,c) => '<div class="kpi"><div class="v '+(c||'')+'">'+v+'</div><div class="r">'+r+'</div></div>';
-  const kpisPos = '<div class="kpis">'+kp(pYtd,'Clientes diferentes em '+anoR)+kp(pLy,'Em '+anoA+' (mesmo período)')+kp(fmtPct(pct(pYtd,pLy)),'Var. acumulado',cls(pct(pYtd,pLy)))+
-    kp(pRef,'Mês ref. ('+ymRot(F.mes)+')')+kp(fmtPct(pct(pRef,pRefLy)),'vs mesmo mês '+anoA,cls(pct(pRef,pRefLy)))+kp(fmtPct(pct(pRef,pAnt)),'vs mês anterior',cls(pct(pRef,pAnt)))+'</div>';
-  h += '<div class="card"><h2>Positivação · clientes que compraram<small>carteira atual: '+carteira+' clientes · no mês ref.: '+pRef+' ('+(carteira?nm(pRef/carteira*100,0):0)+'%)</small></h2>'+kpisPos+barrasMes(posN,{cor:'#BFE3CE',corRef:'#1E7A4D',fmt:v=>nm(v,0)+' clientes',fmtBar:v=>nm(v,0)})+legendaBarras()+'</div>';
-  h += '<div class="card"><h2>Bonificação · investimento (R$)<small>mês ref.: '+brl(bonRef)+(fatRef?' · '+nm(bonRef/fatRef*100,1)+'% do faturamento':'')+'</small></h2>'+barrasMes(bon,{cor:'#FBE0D6',corRef:'#8A3324',fmt:brl})+'</div>';
+  const R = F.mes, LY = ymAdd(F.mes,-12), ANT = ymAdd(F.mes,-1), ano = F.mes.slice(0,4), anoA = String(+ano-1);
+  const acum = (serie, a, ate) => Object.keys(serie).reduce((s,m)=>s + (m.slice(0,4)===a && m<=ate ? serie[m] : 0), 0);
+  const distintos = (de, ate) => { const st = new Set(); V.forEach(p=>{ if(p.ym>=de && p.ym<=ate) st.add(p.cliente_id); }); return st.size; };
+  const cmp = (a,b) => { const v = pct(a,b); return '<b class="'+cls(v)+'">'+fmtPct(v)+'</b>'; };
+  /* cada tile: valor do mes ref, comparado ao mesmo mes do ano anterior e ao mes anterior; acumulado do ano x ano anterior */
+  const tile = (t, v, ref, ly, ant, acA, acL, cor) => '<div class="tile" style="border-top-color:'+(cor||'var(--navy)')+'"><div class="t">'+t+'</div><div class="v">'+v+'</div>'+
+    '<div class="c">vs '+ymRot(LY)+' '+cmp(ref,ly)+' · vs '+ymRot(ANT)+' '+cmp(ref,ant)+'</div>'+
+    (acA!=null?'<div class="c">no ano: '+acA.txt+' '+cmp(acA.v,acL)+'</div>':'')+'</div>';
+  const fR = fat[R]||0, cR = cx[R]||0, pR = posN[R]||0, nR = nped[R]||0;
+  const tk = m => nped[m] ? fat[m]/nped[m] : 0, pc = m => cx[m] ? fat[m]/cx[m] : 0;
+  const bR = bon[R]||0;
+  const fA = acum(fat, ano, R), fL = acum(fat, anoA, LY), cA = acum(cx, ano, R), cL = acum(cx, anoA, LY);
+  const pA = distintos(ano+'-01', R), pL = distintos(anoA+'-01', LY);
+  let h = '<p class="base">Pedidos fechados no app · mês ref. <b>'+ymRot(R)+'</b> · comparação com '+ymRot(LY)+' (ano anterior) e '+ymRot(ANT)+' (mês anterior) · atualizado '+DADOS.quando.toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})+'</p>';
+  h += '<div class="tiles">'+
+    tile('Faturamento', 'R$ '+mil(fR), fR, fat[LY]||0, fat[ANT]||0, {txt:'R$ '+mil(fA), v:fA}, fL, 'var(--gold)')+
+    tile('Volume', nm(cR,0)+' cx', cR, cx[LY]||0, cx[ANT]||0, {txt:nm(cA,0)+' cx', v:cA}, cL, 'var(--navy)')+
+    tile('Positivação', pR+' <span style="font-size:12px;font-weight:600;color:var(--muted)">de '+carteira+'</span>', pR, posN[LY]||0, posN[ANT]||0, {txt:pA+' clientes', v:pA}, pL, 'var(--green)')+
+    tile('Ticket médio', brl(tk(R)).replace(',00',''), tk(R), tk(LY), tk(ANT), null, null, '#7B4FA0')+
+    tile('Preço médio / cx', brl(pc(R)), pc(R), pc(LY), pc(ANT), null, null, '#2F9FD3')+
+    '<div class="tile" style="border-top-color:var(--terra)"><div class="t">Bonificação</div><div class="v">'+brl(bR).replace(',00','')+'</div><div class="c">'+(fR?nm(bR/fR*100,1)+'% do faturamento do mês':'—')+'</div><div class="c">'+nR+' pedidos de venda no mês</div></div>'+
+  '</div>';
+  h += '<div class="g32"><div class="card"><h2>Faturamento por mês (R$)</h2>'+barrasMes(fat,{alt:215})+legendaBarras()+'</div>'+
+       '<div class="card"><h2>Mix por categoria<small>últimos 12 meses</small></h2>'+rosca(porCat,null,true)+'</div></div>';
+  h += '<div class="g3"><div class="card"><h2>Volume (caixas)</h2>'+barrasMes(cx,{pequeno:true,n:13,alt:230,cor:'#1F4E79',corRef:'#E8604C',escuro:true,fmt:v=>nm(v,0)+' cx',fmtBar:v=>nm(v,0)})+'</div>'+
+       '<div class="card"><h2>Positivação (clientes)</h2>'+barrasMes(posN,{pequeno:true,n:13,alt:230,cor:'#BFE3CE',corRef:'#1E7A4D',fmt:v=>nm(v,0)+' clientes',fmtBar:v=>nm(v,0)})+'</div>'+
+       '<div class="card"><h2>Preço médio por caixa</h2>'+linhaMes(preco, v=>nm(v,0), true)+'</div></div>';
+  /* destaques para decidir: quem mais comprou no mes e quem parou */
+  const doMes = {}; V.filter(p=>p.ym===R).forEach(p=>{ doMes[p.cliente_id] = (doMes[p.cliente_id]||0) + p.total; });
+  const top = Object.keys(doMes).sort((a,b)=>doMes[b]-doMes[a]).slice(0,5);
+  const ult = {}; V.forEach(p=>{ if(!ult[p.cliente_id] || p.data>ult[p.cliente_id]) ult[p.cliente_id] = p.data; });
+  const lim = new Date(Date.now()-30*864e5).toISOString().slice(0,10);
+  const parados = DADOS.carteira.filter(c=>passaCli(c) && ult[c.id] && ult[c.id]<lim).sort((a,b)=>ult[b.id].localeCompare(ult[a.id])).slice(0,5);
+  h += '<div class="g3"><div class="card"><h2>Mix por indústria</h2>'+rosca(porMarca,null,true)+'</div>'+
+       '<div class="card"><h2>Mix por canal e tipo</h2>'+rosca(porCanal,null,true)+'</div>'+
+       '<div class="card"><h2>Destaques</h2><div class="peq" style="font-weight:700;margin:2px 0">Maiores do mês ('+ymRot(R)+')</div><ul class="top5">'+
+         (top.length ? top.map(id=>'<li><span class="n">'+esc(nomeCli(cliDe(id)))+'</span><b>'+brl(doMes[id]).replace(',00','')+'</b></li>').join('') : '<li class="peq">sem vendas no mês</li>')+'</ul>'+
+         '<div class="peq" style="font-weight:700;margin:8px 0 2px">Pararam de comprar (30+ dias)</div><ul class="top5">'+
+         (parados.length ? parados.map(c=>'<li><span class="n">'+esc(nomeCli(c))+'</span><span class="peq">'+Math.floor((Date.now()-new Date(ult[c.id]).getTime())/864e5)+' dias</span></li>').join('') : '<li class="peq">ninguém parado</li>')+'</ul></div></div>';
   return h;
 }
 
