@@ -1,0 +1,21 @@
+# Mantem a nuvem (Supabase gratis) acordada: o plano gratis pausa depois de 7 dias sem uso.
+# Roda 1x por dia e faz uma consulta leve. Nao le nem grava dado de cliente.
+# No GitHub: Add file > Create new file > nome: .github/workflows/manter-acordado.yml > cola isto > Commit.
+# E cadastre o segredo: Settings > Secrets and variables > Actions > New repository secret
+#   Name: SUPABASE_KEY   Secret: a chave sb_publishable_... (a mesma do app)
+name: manter nuvem acordada
+on:
+  schedule:
+    - cron: '17 11 * * *'   # todo dia, 08:17 de Brasilia
+  workflow_dispatch: {}
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: consulta leve
+        run: |
+          code=$(curl -s -o /dev/null -w '%{http_code}' -X POST \
+            -H "apikey: ${{ secrets.SUPABASE_KEY }}" -H "Content-Type: application/json" -d '{}' \
+            https://wzymaphljtwaoikyyqrk.supabase.co/rest/v1/rpc/quem_sou)
+          echo "resposta: $code"
+          test "$code" = "200"
