@@ -657,7 +657,7 @@ const ico = (n,cl) => '<svg class="'+(cl||'')+'" viewBox="0 0 24 24" fill="none"
 /* ---------------- armazenamento ---------------- */
 const K_DADOS = 'harus.dados.v1';
 const K_CAT   = 'harus.catalogo.v1';
-const VERSAO_APP = '2026-09-25 r35';   /* aparece em Ajustes e no login: para saber qual versao esta rodando */
+const VERSAO_APP = '2026-09-26 r36';   /* aparece em Ajustes e no login: para saber qual versao esta rodando */
 const K_GMAIL = 'harus.gmail.v1';      /* acesso ao Gmail deste aparelho (fora do backup) */
 const K_ABA   = 'harus.aba.v1';
 
@@ -700,6 +700,7 @@ const CONTATOS_EMBUTIDOS = ['illan','renata','bernard','fernando'];  /* só os i
 function lerJSON(k,alt){ try{ const t=localStorage.getItem(k); return t?JSON.parse(t):alt; }catch(e){ return alt; } }
 function gravar(silencioso){
   HIST.cli = null;   /* historico por cliente pode ter mudado */
+  if(VER_COMO) return;   /* modo suporte: so leitura, nada vai para o aparelho nem para a nuvem */
   try{ localStorage.setItem(K_DADOS, JSON.stringify(D)); }
   catch(e){ aviso('Sem espaço no aparelho. Faça um backup e apague pedidos antigos.'); }
   /* qualquer mudanca agenda o envio para a nuvem; o proprio envio grava em silencio */
@@ -999,9 +1000,53 @@ function irPara(a){
 }
 
 const ACOES = {};
+/* ---------- SUPORTE: ver o app como outro vendedor (so leitura) ----------
+   O suporte (login SUP) escolhe um vendedor e ve os clientes e pedidos dele como ele ve.
+   Nada e gravado no aparelho nem enviado a nuvem; o vendedor nao ve aviso nenhum.
+   Cada entrada fica registrada na nuvem (suporte_acessos): quem, quem foi visto, quando. */
+var VER_COMO = null;   /* var: gravar() pode rodar antes desta linha na abertura */
+const LIVRES_VER = new Set(['aba','voltar','fechaModal','abrirPedido','irEnviar','gerarPDF','gerarCSVPedido','verEmail','copiarTexto','copiarTextoCliente',
+  'copiarEmail','copiarAssunto','histCliente','verFoto','verDoc','verRede','verCliente','escolherPeriodo','perAplicar','perAtalho','mesAnterior','mesSeguinte',
+  'setVistaPainel','setFMarca','setCanal','setCat','setCliCanal','setCorteCli','voltarAoMes','voltarCliente','limpaBusca','limpaClientes','setLetra','setTema',
+  'trocarMarca','usarMarca','mgVista','mgModo','mgMargem','mgLimpar','mgProduto','abrirMargem','setStatusF','sairVerComo','verComo','verComoEntrar']);
+function podeVerComo(){ const q = D.nuvem && D.nuvem.quem; return nuvemLogada() && q && q.gestor && q.codigo==='SUP'; }
+ACOES.verComo = async () => {
+  if(!podeVerComo()) return;
+  aviso('Buscando os vendedores...');
+  try{
+    const vs = await nuvemFetch('/rest/v1/vendedores?select=id,nome,codigo&ativo=is.true&order=nome', null, false, 'GET');
+    const outros = (vs||[]).filter(v=>v.codigo!=='SUP');
+    modal('Ver o app como…',
+      '<div class="peq" style="margin-bottom:10px">Só leitura: você vê clientes, pedidos e painel como o vendedor vê. Nada muda no aparelho dele e ele não recebe aviso. O acesso fica registrado.</div>'+
+      (outros.length ? outros.map(v=>'<button class="lin" data-a="verComoEntrar" data-i="'+esc(v.id)+'" data-v="'+esc(v.nome)+'"><span class="ini">'+esc(iniciais(v.nome))+'</span><span class="info"><span class="nm">'+esc(v.nome)+'</span><span class="sub"><span>código '+esc(v.codigo)+'</span></span></span><span class="seta">'+ico('seta')+'</span></button>').join('') : '<div class="vazio">Nenhum vendedor.</div>'), '');
+  }catch(e){ aviso('Não consegui buscar: '+e.message); }
+};
+ACOES.verComoEntrar = async (id, nome) => {
+  aviso('Carregando os dados de '+nome+'...');
+  try{
+    const js = await nuvemFetch('/rest/v1/rpc/baixar_tudo_de', { vend: id });
+    try{ await nuvemFetch('/rest/v1/suporte_acessos', { vendedor_id: id, acao: 'ver_como' }, false, 'POST', {'Prefer':'return=minimal'}); }catch(e){}
+    VER_COMO = { id: id, nome: nome, salvo: { clientes: D.clientes, pedidos: D.pedidos, rascunhoId: D.rascunhoId, seq: D.seq } };
+    D.clientes = (js && js.clientes) || []; D.pedidos = (js && js.pedidos) || []; D.rascunhoId = null;
+    HIST.cli = null; fechaModal(); VISTA = null; ABA = 'historico'; window.scrollTo(0,0); render();
+    aviso('Vendo como '+nome+' · só leitura');
+  }catch(e){ aviso('Não consegui carregar: '+e.message); }
+};
+ACOES.sairVerComo = () => {
+  if(!VER_COMO) return;
+  const s0 = VER_COMO.salvo;
+  D.clientes = s0.clientes; D.pedidos = s0.pedidos; D.rascunhoId = s0.rascunhoId; D.seq = s0.seq;
+  VER_COMO = null; HIST.cli = null; VISTA = null; window.scrollTo(0,0); render(); aviso('Voltou para os seus dados');
+};
+function faixaVerComo(){
+  if(!VER_COMO) return '';
+  return '<div style="position:sticky;top:0;z-index:40;background:#1F4E79;color:#fff;padding:9px 12px;display:flex;gap:10px;align-items:center;justify-content:space-between;font-size:calc(13px * var(--esc));font-weight:700;margin:-4px -4px 10px;border-radius:0 0 10px 10px">'+
+    '<span>👁 Vendo como <b>'+esc(VER_COMO.nome)+'</b> · só leitura</span><button data-a="sairVerComo" style="background:#F2A900;color:#1E1C1A;border:0;border-radius:8px;padding:6px 10px;font-weight:800">Sair</button></div>';
+}
 document.addEventListener('click', e=>{
   const t = e.target.closest('[data-a]');
   if(!t) return;
+  if(VER_COMO && !LIVRES_VER.has(t.dataset.a)){ e.preventDefault(); aviso('Modo suporte: só leitura. Toque em Sair na faixa azul para voltar.'); return; }
   const f = ACOES[t.dataset.a];
   if(f){ e.preventDefault(); f(t.dataset.i, t.dataset.v, t, e); }
 });
@@ -4614,6 +4659,7 @@ function telaAjustes(){
   '</div></div>';
 
   if(nuvemLogada()) h += '<div class="aviso" style="margin:0 0 12px">'+ico('pessoa')+'<span>Neste aparelho: <b>'+esc(quemRotulo())+'</b></span></div>';
+  if(podeVerComo() && !VER_COMO) h += '<button class="bt bt-p bt-bloco" style="margin:-4px 0 14px" data-a="verComo">👁 Ver o app como outro vendedor (suporte)</button>';
   h += '<div class="secao">Marca / indústria</div><div class="cartao">';
   cfg.marcas.forEach((m,i)=>{
     const ativa = m.id===cfg.marcaAtiva;
@@ -5374,7 +5420,7 @@ function agendarSync(ms){
   tSync = setTimeout(()=>{ sincronizar().catch(()=>{}); }, ms==null ? 2500 : ms);
 }
 async function sincronizar(){
-  if(syncEmCurso || !nuvemLogada()) return;
+  if(syncEmCurso || !nuvemLogada() || VER_COMO) return;
   if(navigator.onLine === false){ D.nuvem.erro = 'sem internet'; return; }
   syncEmCurso = true; let mudou = false;
   try{
@@ -7954,7 +8000,7 @@ function render(){
   '</div>';
 
   pintaVersao();
-  el('tela').innerHTML = (VISTA ? '' : faixaVersiculo() + faixaExemplo() + faixaNuvem() + faixaBackup()) + corpoTela();
+  el('tela').innerHTML = faixaVerComo() + (VISTA || VER_COMO ? '' : faixaVersiculo() + faixaExemplo() + faixaNuvem() + faixaBackup()) + corpoTela();
 
   el('abas').innerHTML = ABAS.map(a=>
     '<button class="'+(ABA===a.id && !VISTA?'on':'')+'" data-a="aba" data-i="'+a.id+'">'+
