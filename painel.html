@@ -49,7 +49,7 @@ svg{display:block;width:100%;height:auto}
 .leg i{display:inline-block;width:11px;height:11px;border-radius:2px;vertical-align:-1px;margin-right:4px}
 .rosca{display:flex;gap:14px;align-items:center;flex-wrap:wrap;justify-content:center}
 /* Raio-X numa tela so (p4): tiras de KPI, grades de 2 e 3 cartoes, graficos baixos */
-.tiles{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;margin-bottom:8px}
+.tiles{display:grid;grid-template-columns:repeat(7,1fr);gap:8px;margin-bottom:8px}
 .tile{background:#fff;border:1px solid var(--line);border-radius:10px;padding:8px 10px;border-top:3px solid var(--navy)}
 .tile .t{font-size:10.5px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;color:var(--muted)}
 .tile .v{font-size:20px;font-weight:800;margin:2px 0 1px;font-variant-numeric:tabular-nums;white-space:nowrap}
@@ -66,6 +66,7 @@ svg{display:block;width:100%;height:auto}
 .top5 li{display:flex;justify-content:space-between;gap:8px;padding:4px 0;border-bottom:1px solid var(--line)}
 .top5 li:last-child{border-bottom:0}
 .top5 .n{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+@media (max-width:1250px){.tiles{grid-template-columns:repeat(4,1fr)}}
 @media (max-width:1150px){.tiles{grid-template-columns:repeat(3,1fr)}.g3{grid-template-columns:1fr 1fr}}
 @media (max-width:760px){.tiles{grid-template-columns:1fr 1fr}.g32,.g3{grid-template-columns:1fr}}
 .rosca svg{width:190px;flex:0 0 190px}
@@ -125,7 +126,7 @@ td.d,th.d{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
    Raio-X · Redes · Clientes · Produtos · Pedidos · Sem comprar.
    Lê a nuvem com login de gestor/suporte. Nada de preço, cliente ou chave no arquivo.
    ========================================================= */
-const VERSAO = '2026-09-25 p5';
+const VERSAO = '2026-09-26 p6';
 const K = 'painel.sessao.v1';
 const NUVEM_URL = 'https://wzymaphljtwaoikyyqrk.supabase.co';
 let S = null, DADOS = null, ERRO = '';
@@ -223,6 +224,10 @@ function carregarDemo(){
         num++;
         pedidos.push({id:'p'+num, num:(cafe?'COF-':'HAR-')+String(num).padStart(4,'0'), status:st, data:data, total:total, kg:0, cx:itens.reduce((s,i)=>s+i.qtd,0),
           vendedor_id:c.vendedor_id, cliente_id:c.id, marca_id:cafe?'mc':'mh', dados:{itens:itens, tipo:bon?'bonificacao':'venda', marca:cafe?'Coffee ++':'Harus + PP', cond:pick(['21 dias','28 dias','14/28 dias']), numCliente:rnd()<0.3?'OC '+(1000+num):''}});
+        /* entrega conferida em ~85% dos faturados; ~15% dos itens com falta (cortado ou vem depois) */
+        const pd = pedidos[pedidos.length-1];
+        if(st==='Faturado' && rnd()<0.85){ pd.dados.conferido = data+'T12:00:00Z';
+          itens.forEach(i=>{ if(rnd()<0.15){ i.qtdFat = Math.max(0, i.qtd - 1 - Math.floor(rnd()*Math.min(3,i.qtd))); i.falta = rnd()<0.75 ? 'cortado' : 'pendente'; } else i.qtdFat = i.qtd; }); }
       }
     });
   }
@@ -256,15 +261,28 @@ async function carregar(){
 }
 function prep(p){
   const d = p.dados || {};
-  const itens = (d.itens||[]).map(it=>{ const pr = DADOS.prod[it.skuId] || {}; return { sku: it.skuId, cod: it.cod||pr.cod||'', nome: it.nome||pr.nome||'', un: it.un, qtd: Number(it.qtd)||0, preco: Number(it.preco)||0, cat: pr.categoria || '' }; });
+  const itens = (d.itens||[]).map(it=>{ const pr = DADOS.prod[it.skuId] || {}; const q = Number(it.qtd)||0;
+    const qf = d.conferido ? (it.qtdFat==null ? q : Number(it.qtdFat)||0) : null;
+    return { sku: it.skuId, cod: it.cod||pr.cod||'', nome: it.nome||pr.nome||'', un: it.un, qtd: q, preco: Number(it.preco)||0, cat: pr.categoria || '',
+             qtdFat: qf, falta: (qf!=null && qf<q) ? (it.falta==='pendente' ? 'pendente' : 'cortado') : '' }; });
   const bruto = itens.reduce((s,it)=>s+it.qtd*it.preco, 0);
   const liq = bruto * (1 - (Number(d.desc)||0)/100);
   return { id:p.id, num:p.num||d.num, status:p.status||d.status, data:p.data||d.data||'', ym:String(p.data||d.data||'').slice(0,7),
            total: Number(p.total)||liq, cx:Number(p.cx)||itens.reduce((s,it)=>s+(it.un==='CX'?it.qtd:0),0), kg:Number(p.kg)||0,
            vendedor_id:p.vendedor_id, cliente_id:p.cliente_id, marca: d.marca || DADOS.mk[p.marca_id] || '',
-           tipo:(d.tipo||'venda'), numCliente:d.numCliente||'', cond:d.cond||'', itens, obs:d.obs||'', reaberturas:d.reaberturas||[] };
+           tipo:(d.tipo||'venda'), numCliente:d.numCliente||'', cond:d.cond||'', itens, obs:d.obs||'', reaberturas:d.reaberturas||[],
+           conferido: d.conferido || '' };
 }
 const VALE = st => st==='Fechado' || st==='Enviado' || st==='Faturado';
+/* corte de um pedido conferido: o que o cliente pediu e a industria nao mandou */
+function corteDe(p){
+  const r = { pedido:0, entregue:0, cortado:0, pendente:0, cxPed:0, cxCort:0, completo:true };
+  if(!p.conferido) return null;
+  p.itens.forEach(it=>{ const v = it.preco;
+    r.pedido += it.qtd*v; r.entregue += it.qtdFat*v; r.cxPed += it.qtd;
+    if(it.qtdFat < it.qtd){ r.completo = false; if(it.falta==='pendente') r.pendente += (it.qtd-it.qtdFat)*v; else { r.cortado += (it.qtd-it.qtdFat)*v; r.cxCort += it.qtd-it.qtdFat; } } });
+  return r;
+}
 
 /* ---------- filtros ---------- */
 const cliDe = id => DADOS.cli[id] || {};
@@ -401,6 +419,11 @@ function telaRaio(){
     tile('Positivação', pR+' <span style="font-size:12px;font-weight:600;color:var(--muted)">de '+carteira+'</span>', pR, posN[LY]||0, posN[ANT]||0, {txt:pA+' clientes', v:pA}, pL, 'var(--green)')+
     tile('Ticket médio', brl(tk(R)).replace(',00',''), tk(R), tk(LY), tk(ANT), null, null, '#7B4FA0')+
     tile('Preço médio / cx', brl(pc(R)), pc(R), pc(LY), pc(ANT), null, null, '#2F9FD3')+
+    (function(){ const confR = V.filter(p=>p.ym===R && p.conferido); const cR2 = confR.map(corteDe);
+      const ped = cR2.reduce((s2,c)=>s2+c.pedido,0), cort = cR2.reduce((s2,c)=>s2+c.cortado,0), compl = cR2.filter(c=>c.completo).length;
+      const noAno = V.filter(p=>p.ym.slice(0,4)===ano && p.ym<=R && p.conferido).map(corteDe).reduce((s2,c)=>s2+c.cortado,0);
+      return '<div class="tile" style="border-top-color:#E8604C;cursor:pointer" data-ir="cortes"><div class="t">Deixou de faturar</div><div class="v" style="color:'+(cort?'var(--red)':'inherit')+'">'+brl(cort).replace(',00','')+'</div>'+
+        '<div class="c">'+(ped?nm(cort/ped*100,1)+'% do pedido · '+nm(compl/confR.length*100,0)+'% completos':'nenhum pedido conferido no mês')+'</div><div class="c">no ano: '+brl(noAno).replace(',00','')+' · '+confR.length+' de '+V.filter(p=>p.ym===R).length+' conferidos</div></div>'; })()+
     '<div class="tile" style="border-top-color:var(--terra)"><div class="t">Bonificação</div><div class="v">'+brl(bR).replace(',00','')+'</div><div class="c">'+(fR?nm(bR/fR*100,1)+'% do faturamento do mês':'—')+'</div><div class="c">'+nR+' pedidos de venda no mês</div></div>'+
   '</div>';
   h += '<div class="g32"><div class="card"><h2>Faturamento por mês (R$)</h2>'+barrasMes(fat,{alt:215})+legendaBarras()+'</div>'+
@@ -482,6 +505,30 @@ function telaClientes(){
   return h+'</tbody></table></div><p class="peq">Tendência: últimos 3 meses contra os 3 anteriores.</p>';
 }
 
+function telaCortes(){
+  const Vj = vendasB().filter(naJanela), conf = Vj.filter(p=>p.conferido);
+  const tot = { pedido:0, entregue:0, cortado:0, pendente:0, completos:0 };
+  conf.forEach(p=>{ const c = corteDe(p); tot.pedido += c.pedido; tot.entregue += c.entregue; tot.cortado += c.cortado; tot.pendente += c.pendente; if(c.completo) tot.completos++; });
+  const k = (v,r,c2) => '<div class="kpi"><div class="v '+(c2||'')+'">'+v+'</div><div class="r">'+r+'</div></div>';
+  let h = '<div class="filtro">'+selJanela()+'<span class="peq">'+rotJanela()+' · <b>'+conf.length+' de '+Vj.length+'</b> pedidos com entrega conferida</span><button class="bt" id="csv_cortes">Baixar CSV</button></div>';
+  if(!conf.length) return h+'<div class="card vazio">Nenhum pedido com entrega conferida neste período.<br><br>No app: abra um pedido <b>Enviado/Faturado</b> › <b>Conferir entrega</b> › "Veio tudo" ou, item por item, quanto veio e se o que faltou foi <b>cortado</b> ou <b>vem depois</b>. É daí que sai o corte.</div>';
+  h += '<div class="card"><h2>O que a indústria deixou de entregar<small>só pedidos com entrega conferida</small></h2><div class="kpis">'+
+    k(brl(tot.pedido).replace(',00',''),'Pedido (conferidos)')+k(brl(tot.entregue).replace(',00',''),'Entregue')+k(brl(tot.cortado).replace(',00',''),'Cortado (perdido)', tot.cortado?'neg':'')+
+    k(brl(tot.pendente).replace(',00',''),'Pendente (vem depois)')+k(nm(tot.pedido?tot.entregue/tot.pedido*100:100,1)+'%','Nível de serviço (R$)', (tot.pedido&&tot.entregue/tot.pedido<0.95)?'neg':'pos')+
+    k(nm(tot.completos/conf.length*100,0)+'%','Pedidos entregues completos')+'</div>';
+  const porMesC = porMes(vendasB().filter(p=>p.conferido), p=>corteDe(p).cortado);
+  h += barrasMes(porMesC,{alt:200,cor:'#F6D0C8',corRef:'#C1272D',fmt:brl})+'</div>';
+  const pp = {}, pc = {};
+  conf.forEach(p=>{ p.itens.forEach(it=>{ const x = pp[it.sku||it.cod] || (pp[it.sku||it.cod] = {cod:it.cod, nome:it.nome, marca:p.marca, cxPed:0, cxCort:0, v:0, peds:new Set()});
+      x.cxPed += it.qtd; if(it.qtdFat<it.qtd && it.falta!=='pendente'){ x.cxCort += it.qtd-it.qtdFat; x.v += (it.qtd-it.qtdFat)*it.preco; x.peds.add(p.id); } });
+    const c = corteDe(p); if(c.cortado){ const y = pc[p.cliente_id] || (pc[p.cliente_id] = {v:0, n:0}); y.v += c.cortado; y.n++; } });
+  const Lp = Object.values(pp).filter(x=>x.cxCort).sort((a,b)=>b.v-a.v), Lc = Object.keys(pc).sort((a,b)=>pc[b].v-pc[a].v);
+  h += '<div class="grid2"><div class="card"><h2>Produtos que mais faltaram</h2>'+(Lp.length?'<div class="rol" style="max-height:none"><table><thead><tr><th>Produto</th><th class="d">Cx pedidas</th><th class="d">Cx cortadas</th><th class="d">% corte</th><th class="d">R$ perdido</th><th class="d">Pedidos</th></tr></thead><tbody>'+
+    Lp.map(x=>'<tr><td><b>'+esc(x.nome)+'</b><div class="peq">'+esc(x.cod)+' · '+esc(x.marca)+'</div></td><td class="d">'+nm(x.cxPed,0)+'</td><td class="d neg">'+nm(x.cxCort,0)+'</td><td class="d">'+nm(x.cxCort/x.cxPed*100,1)+'%</td><td class="d"><b>'+brl(x.v)+'</b></td><td class="d">'+x.peds.size+'</td></tr>').join('')+'</tbody></table></div>':'<div class="vazio">Nenhum corte no período. 👏</div>')+'</div>'+
+    '<div class="card"><h2>Clientes afetados</h2>'+(Lc.length?'<div class="rol" style="max-height:none"><table><thead><tr><th>Cliente</th><th class="d">Pedidos com corte</th><th class="d">R$ não entregue</th></tr></thead><tbody>'+
+    Lc.map(id=>'<tr><td><b>'+esc(nomeCli(cliDe(id)))+'</b><div class="peq">'+esc([cliDe(id).bairro,cliDe(id).cidade].filter(Boolean).join(' — '))+'</div></td><td class="d">'+pc[id].n+'</td><td class="d"><b>'+brl(pc[id].v)+'</b></td></tr>').join('')+'</tbody></table></div>':'<div class="vazio">Nenhum cliente afetado.</div>')+'</div></div>';
+  return h+'<p class="peq">Cortado = a indústria não vai mandar (venda perdida). Pendente = vem numa próxima entrega. Nível de serviço = entregue ÷ pedido.</p>';
+}
 function telaProdutos(){
   const V = vendasB().filter(naJanela); const m = {};
   V.forEach(p=>p.itens.forEach(it=>{ const k = it.sku||it.cod+'|'+it.nome; const x = m[k] || (m[k] = {cod:it.cod, nome:it.nome, cat:it.cat, marca:p.marca, v:0, q:0, cli:new Set(), n:0});
@@ -518,7 +565,7 @@ function modalPedido(id){
   d.innerHTML = '<div><h3>'+esc(p.num)+' · '+esc(p.marca)+'</h3><div class="peq">'+dbr(p.data)+' · '+esc(p.status)+(p.tipo==='bonificacao'?' · bonificação':'')+(p.cond?' · '+esc(p.cond):'')+(p.numCliente?' · OC '+esc(p.numCliente):'')+'</div>'+
     '<p><b>'+esc(nomeCli(c))+'</b><br><span class="peq">'+esc(c.razao||'')+' · '+esc([c.bairro,c.cidade].filter(Boolean).join(' — '))+'</span></p>'+
     '<div class="rol" style="max-height:none"><table><thead><tr><th>Cód.</th><th>Produto</th><th class="d">Qtd</th><th class="d">Preço</th><th class="d">Total</th></tr></thead><tbody>'+
-    p.itens.map(it=>'<tr><td>'+esc(it.cod)+'</td><td>'+esc(it.nome)+'</td><td class="d">'+nm(it.qtd,0)+' '+esc(it.un||'')+'</td><td class="d">'+brl(it.preco)+'</td><td class="d"><b>'+brl(it.qtd*it.preco)+'</b></td></tr>').join('')+
+    p.itens.map(it=>'<tr><td>'+esc(it.cod)+'</td><td>'+esc(it.nome)+(it.qtdFat!=null && it.qtdFat<it.qtd ? '<div class="peq" style="color:var(--red)">veio '+nm(it.qtdFat,0)+' · '+(it.falta==='pendente'?'resto vem depois':'cortou '+nm(it.qtd-it.qtdFat,0))+'</div>' : '')+'</td><td class="d">'+nm(it.qtd,0)+' '+esc(it.un||'')+'</td><td class="d">'+brl(it.preco)+'</td><td class="d"><b>'+brl(it.qtd*it.preco)+'</b></td></tr>').join('')+
     '</tbody></table></div><p style="text-align:right"><b>Total '+brl(p.total)+'</b></p>'+(p.obs?'<p class="peq">Obs.: '+esc(p.obs)+'</p>':'')+
     (p.reaberturas.length?'<p class="peq" style="color:var(--red)">'+p.reaberturas.map(r=>'Revisão: '+esc(r.motivo)+' — '+esc(r.texto)).join('<br>')+'</p>':'')+
     '<button class="bt bt-r" style="width:100%;margin-top:6px">Fechar</button></div>';
@@ -557,6 +604,9 @@ const csvs = {
   csv_itens: ()=>{ const L = [['Pedido','Data','Situacao','Tipo','Industria','Cliente','Cod','Produto','Categoria','Un','Qtd','Preco','Total item']]; DADOS.pedidos.filter(p=>passaPed(p)&&naJanela(p)).forEach(p=>{ const c = cliDe(p.cliente_id); p.itens.forEach(it=>L.push([p.num,dbr(p.data),p.status,p.tipo,p.marca,nomeCli(c),it.cod,it.nome,it.cat,it.un,num(it.qtd),num(it.preco),num(it.qtd*it.preco)])); }); baixar('pedidos_itens.csv', L); },
   csv_sem: ()=>{ const lim = new Date(Date.now()-F.dias*864e5).toISOString().slice(0,10); const ult = {}; vendasB().forEach(p=>{ if(!ult[p.cliente_id]||p.data>ult[p.cliente_id]) ult[p.cliente_id]=p.data; });
     baixar('sem_comprar.csv', [['Bairro','Cidade','Cliente','Razao social','Rede','Contato','Telefone','Ultima compra']].concat(DADOS.carteira.filter(c=>passaCli(c)&&(!ult[c.id]||ult[c.id]<lim)).map(c=>[c.bairro,c.cidade,nomeCli(c),c.razao,c.rede,(c.dados||{}).contato,(c.dados||{}).fone,ult[c.id]?dbr(ult[c.id]):'nunca']))); },
+  csv_cortes: ()=>{ const L = [['Pedido','Data','Cliente','Industria','Cod','Produto','Qtd pedida','Qtd entregue','Situacao da falta','Preco','R$ nao entregue']];
+    vendasB().filter(p=>naJanela(p) && p.conferido).forEach(p=>{ const c = cliDe(p.cliente_id); p.itens.forEach(it=>{ if(it.qtdFat<it.qtd) L.push([p.num,dbr(p.data),nomeCli(c),p.marca,it.cod,it.nome,num(it.qtd),num(it.qtdFat),it.falta,num(it.preco),num((it.qtd-it.qtdFat)*it.preco)]); }); });
+    baixar('cortes.csv', L); },
   csv_redes: ()=>{ const L = [['Rede','Loja','Cliente','Bairro','Cidade']]; DADOS.carteira.filter(c=>c.rede&&passaCli(c)).forEach(c=>L.push([c.rede,c.loja,nomeCli(c),c.bairro,c.cidade])); baixar('redes_lojas.csv', L); }
 };
 
@@ -588,12 +638,12 @@ function telaLogin(msg){
     '<button class="bt" id="l_demo" style="background:#fff;color:var(--navy);border:1px solid var(--navy);margin-top:8px">Ver demonstração (dados fictícios)</button>'+
     '<div class="peq" style="margin-top:14px">Painel · versão '+VERSAO+'</div></div>';
 }
-const ABAS = [['raio','Raio-X'],['redes','Redes'],['clientes','Clientes'],['produtos','Produtos'],['pedidos','Pedidos'],['sem','Sem comprar']];
+const ABAS = [['raio','Raio-X'],['redes','Redes'],['clientes','Clientes'],['produtos','Produtos'],['cortes','Cortes'],['pedidos','Pedidos'],['sem','Sem comprar']];
 function render(){
   const app = el('app');
   if(!DEMO && (!S || !S.access_token)){ app.innerHTML = telaLogin(ERRO); el('l_demo').onclick = ()=>{ F.mes=''; carregarDemo(); }; el('l_ok').onclick = aoEntrar; el('l_senha').onkeydown = e=>{ if(e.key==='Enter') aoEntrar(); }; return; }
   if(!DADOS){ app.innerHTML = '<div class="vazio" style="padding:60px">Carregando a nuvem…</div>'+(ERRO?'<div class="erro" style="text-align:center">'+esc(ERRO)+' <button class="bt bt-r" id="b_sair2">Sair</button></div>':''); const b = el('b_sair2'); if(b) b.onclick = sair; return; }
-  const corpo = ({raio:telaRaio, redes:telaRedes, clientes:telaClientes, produtos:telaProdutos, pedidos:telaPedidos, sem:telaSem}[F.aba] || telaRaio)();
+  const corpo = ({raio:telaRaio, redes:telaRedes, clientes:telaClientes, produtos:telaProdutos, cortes:telaCortes, pedidos:telaPedidos, sem:telaSem}[F.aba] || telaRaio)();
   const rolagem = window.scrollY;
   app.innerHTML = (DEMO ? '<div style="background:#F2A900;color:#1E1C1A;text-align:center;font-weight:800;font-size:12.5px;padding:5px 8px">DEMONSTRAÇÃO · dados fictícios, só nesta tela · <a href="#" id="b_sairdemo" style="color:#1E1C1A">sair da demonstração</a></div>' : '')+
     '<header><h1>Painel de Vendas · <b>'+esc(ABAS.find(a=>a[0]===F.aba)[1])+'</b></h1><small>atualizado '+DADOS.quando.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})+'</small>'+
@@ -613,6 +663,7 @@ function render(){
   document.querySelectorAll('th[data-ord]').forEach(t=>t.onclick = ()=>{ const k = t.dataset.ord; if(F.ord===k) F.dir = -F.dir; else { F.ord = k; F.dir = /cli|nome|num|status/.test(k) ? 1 : -1; } render(); });
   document.querySelectorAll('tr[data-rede]').forEach(t=>t.onclick = ()=>{ F.redeAberta = F.redeAberta===t.dataset.rede ? '' : t.dataset.rede; render(); });
   document.querySelectorAll('tr[data-ped]').forEach(t=>t.onclick = ()=>modalPedido(t.dataset.ped));
+  document.querySelectorAll('[data-ir]').forEach(t=>t.onclick = ()=>{ F.aba = t.dataset.ir; guardaFiltros(); window.scrollTo(0,0); render(); });
   Object.keys(csvs).forEach(id=>liga(id, csvs[id], 'onclick'));
 }
 async function aoEntrar(){
